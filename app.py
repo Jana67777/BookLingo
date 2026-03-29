@@ -6,11 +6,17 @@ from datetime import datetime
 import requests
 import os
 import re
+import tempfile
+from bs4 import BeautifulSoup
+import fitz  # PyMuPDF
+import docx
+import ebooklib
+from ebooklib import epub
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'andersen_secret_key_12345'
-# 允许上传文件大小限制为 16MB
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+# 允许上传文件大小限制为 100MB (PDF/EPUB等文件可能较大)
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 
 # Vercel 部署环境适配：Vercel 的根目录是只读的，SQLite 需要写在 /tmp 目录下，或者使用 PostgreSQL
 if os.environ.get('SQLALCHEMY_DATABASE_URI') or os.environ.get('DATABASE_URL'):
@@ -135,6 +141,62 @@ def get_default_book_content():
         except Exception as e:
             print("Failed to load default book:", e)
     return "Welcome to BookLingo! Please login and upload a book to start reading."
+
+def extract_text_from_file(file, ext):
+    """根据文件扩展名提取文本内容"""
+    if ext == '.txt':
+        content = file.read()
+        for enc in ['utf-8', 'gbk', 'gb18030', 'latin-1']:
+            try:
+                return content.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        return None
+        
+    elif ext == '.epub':
+        # 将文件保存到临时文件供 ebooklib 读取
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.epub') as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+            
+        try:
+            book = epub.read_epub(tmp_path)
+            text_content = []
+            for item in book.get_items():
+                if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                    soup = BeautifulSoup(item.get_content(), 'html.parser')
+                    text_content.append(soup.get_text(separator='\n'))
+            return '\n\n'.join(text_content)
+        finally:
+            os.remove(tmp_path)
+            
+    elif ext == '.pdf':
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+            
+        try:
+            doc = fitz.open(tmp_path)
+            text_content = []
+            for page in doc:
+                text_content.append(page.get_text())
+            return '\n\n'.join(text_content)
+        finally:
+            os.remove(tmp_path)
+            
+    elif ext in ['.doc', '.docx']:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+            
+        try:
+            doc = docx.Document(tmp_path)
+            text_content = [para.text for para in doc.paragraphs]
+            return '\n\n'.join(text_content)
+        finally:
+            os.remove(tmp_path)
+            
+    return None
 
 # --- 路由 (Task 1: Auth) ---
 @app.route('/register', methods=['GET', 'POST'])
@@ -296,8 +358,10 @@ def api_page():
     })
 
 @app.route('/api/upload', methods=['POST'])
-@login_required
 def upload_file():
+    if not current_user.is_authenticated:
+        return jsonify({"error": "请先登录后再上传书籍"}), 401
+        
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
     file = request.files['file']
@@ -305,19 +369,19 @@ def upload_file():
         return jsonify({"error": "No selected file"}), 400
     
     try:
-        content = file.read()
-        text = None
-        for enc in ['utf-8', 'gbk', 'gb18030', 'latin-1']:
-            try:
-                text = content.decode(enc)
-                break
-            except UnicodeDecodeError:
-                continue
+        filename = file.filename
+        ext = os.path.splitext(filename)[1].lower()
+        title = os.path.splitext(filename)[0]
         
-        if text is None:
-            return jsonify({"error": "Unsupported encoding"}), 400
+        supported_exts = ['.txt', '.epub', '.pdf', '.doc', '.docx']
+        if ext not in supported_exts:
+            return jsonify({"error": f"不支持的文件格式，仅支持 {', '.join(supported_exts)}"}), 400
             
-        title = os.path.splitext(file.filename)[0]
+        text = extract_text_from_file(file, ext)
+        
+        if text is None or len(text.strip()) == 0:
+            return jsonify({"error": "无法提取文本内容或文件为空"}), 400
+            
         pages = paginate_text(text, PAGE_SIZE)
         
         # 将书本存入数据库
@@ -333,6 +397,8 @@ def upload_file():
         
         return jsonify({"success": True, "title": title, "book_id": new_book.id, "total_pages": len(pages)})
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/books', methods=['GET'])

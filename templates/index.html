@@ -4,6 +4,7 @@
 
 {% block extra_head %}
 <style>
+    /* Tooltip 高级毛玻璃样式 */
     #translation-tooltip {
         position: absolute;
         display: none;
@@ -139,12 +140,12 @@
             </h2>
             
             <div class="mb-8">
-                <input type="file" id="fileInput" hidden accept=".txt">
+                <input type="file" id="fileInput" hidden accept=".txt,.epub,.pdf,.doc,.docx">
                 <button onclick="document.getElementById('fileInput').click()" class="w-full bg-gradient-to-r from-blue-50 to-purple-50 text-purple-700 border border-purple-200 hover:border-purple-300 hover:shadow-md py-3 px-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-medium">
                     <i class="fa-solid fa-file-import text-lg"></i> 导入本地书籍
                 </button>
                 <p class="text-xs text-gray-500 mt-3 text-center flex items-center justify-center gap-1">
-                    <i class="fa-solid fa-circle-info"></i> 支持 .txt 格式
+                    <i class="fa-solid fa-circle-info"></i> 支持 .txt, .epub, .pdf, .docx
                 </p>
             </div>
             
@@ -509,7 +510,7 @@
         e.preventDefault();
         if (!currentSelection || !isAuthenticated || !currentBookId) {
             if (!isAuthenticated) alert("请先登录！");
-            if (!currentBookId) alert("默认演示文本不支持高亮，请上传您的专属书籍。");
+            if (!currentBookId) alert("请上传您的书籍。");
             return;
         }
         
@@ -524,7 +525,7 @@
         e.preventDefault();
         if (!currentSelection || !isAuthenticated || !currentBookId) {
             if (!isAuthenticated) alert("请先登录！");
-            if (!currentBookId) alert("默认演示文本不支持笔记，请上传您的书籍。");
+            if (!currentBookId) alert("默认演示文本不支持笔记，请上传您的专属书籍。");
             return;
         }
         
