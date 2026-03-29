@@ -4,9 +4,12 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 import os
+import re
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'andersen_secret_key_12345'
+# 允许上传文件大小限制为 16MB
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 # Vercel 部署环境适配：Vercel 的根目录是只读的，SQLite 需要写在 /tmp 目录下，或者使用 PostgreSQL
 if os.environ.get('SQLALCHEMY_DATABASE_URI'):
@@ -50,6 +53,56 @@ def load_user(user_id):
 # 初始化数据库表
 with app.app_context():
     db.create_all()
+
+# --- 阅读器全局变量 (用于简单的内存缓存，在Serverless环境中不持久，仅作为示例缓存) ---
+# 注意：在真实的 Vercel 部署中，如果需要支持多用户同时读不同的书，应将书籍内容或进度存入数据库。
+# 考虑到纯展示和简化，这里暂用全局变量（每次请求可能丢失状态），但前端可以通过上传重置它。
+GLOBAL_TEXT = ""
+GLOBAL_PAGES = []
+GLOBAL_BOOK_TITLE = "安徒生童话"
+PAGE_SIZE = 2000
+
+def paginate_text(text: str, page_size: int):
+    if not text:
+        return []
+    pages = []
+    i = 0
+    n = len(text)
+    while i < n:
+        end = min(i + page_size, n)
+        if end < n:
+            window_start = max(i, end - 200)
+            chunk = text[window_start:end]
+            m = None
+            for match in re.finditer(r"\s", chunk):
+                m = match
+            if m:
+                safe_end = window_start + m.start()
+                if safe_end <= i:
+                    safe_end = end
+            else:
+                forward_end = min(n, end + 200)
+                fchunk = text[end:forward_end]
+                fm = re.search(r"\s", fchunk)
+                if fm:
+                    safe_end = end + fm.start()
+                else:
+                    safe_end = end
+        else:
+            safe_end = end
+        pages.append(text[i:safe_end])
+        i = safe_end
+    return pages
+
+# 初始化加载默认的童话
+default_book_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Andersen's_fairy_tales.txt")
+if os.path.exists(default_book_path):
+    try:
+        with open(default_book_path, "r", encoding="utf-8") as f:
+            GLOBAL_TEXT = f.read()
+            GLOBAL_PAGES = paginate_text(GLOBAL_TEXT, PAGE_SIZE)
+    except Exception as e:
+        print("Failed to load default book:", e)
 
 # --- 路由 (Task 1: Auth) ---
 @app.route('/register', methods=['GET', 'POST'])
@@ -150,6 +203,57 @@ def add_vocab():
 def vocab_book():
     vocabs = Vocab.query.filter_by(user_id=current_user.id).order_by(Vocab.id.desc()).all()
     return render_template('vocab.html', vocabs=vocabs)
+
+# --- 阅读器相关路由 (移植自旧版本) ---
+@app.route('/api/page')
+def api_page():
+    total = max(1, len(GLOBAL_PAGES))
+    try:
+        page = int(request.args.get("page", "1"))
+    except Exception:
+        page = 1
+    if page < 1:
+        page = 1
+    if page > total:
+        page = total
+    content = GLOBAL_PAGES[page-1] if GLOBAL_PAGES else ""
+    return jsonify({
+        "page": page, 
+        "total_pages": total, 
+        "page_size": PAGE_SIZE, 
+        "content": content, 
+        "book_title": GLOBAL_BOOK_TITLE
+    })
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    global GLOBAL_TEXT, GLOBAL_PAGES, GLOBAL_BOOK_TITLE
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    
+    try:
+        content = file.read()
+        text = None
+        for enc in ['utf-8', 'gbk', 'gb18030', 'latin-1']:
+            try:
+                text = content.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if text is None:
+            return jsonify({"error": "Unsupported encoding"}), 400
+            
+        GLOBAL_TEXT = text
+        GLOBAL_PAGES = paginate_text(GLOBAL_TEXT, PAGE_SIZE)
+        GLOBAL_BOOK_TITLE = os.path.splitext(file.filename)[0]
+        
+        return jsonify({"success": True, "title": GLOBAL_BOOK_TITLE, "total_pages": len(GLOBAL_PAGES)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/')
 def index():

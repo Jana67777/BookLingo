@@ -21,49 +21,109 @@
     .story-content {
         line-height: 1.8;
         font-size: 1.125rem;
+        min-height: 50vh;
     }
     .story-content p {
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.5em;
+        text-indent: 2em;
+    }
+    .story-content p.title { text-indent: 0; text-align: center; font-weight: 800; font-size: 1.5em; }
+    .story-content p.catalog { white-space: pre-wrap; text-indent: 0; }
+    
+    .token { cursor: pointer; transition: background-color 0.2s; }
+    .token:hover { background-color: #e0f2fe; border-radius: 4px; }
+    
+    .progress-bar-container {
+        width: 100%;
+        height: 6px;
+        background-color: #e5e7eb;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 1rem;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        background-color: #3b82f6;
+        width: 0%;
+        transition: width 0.3s ease;
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="bg-white rounded-xl shadow-sm p-6 md:p-10 relative">
-    <h1 class="text-3xl font-bold text-center mb-8 font-serif" id="story-title">The Ugly Duckling</h1>
-    
-    {% if not current_user.is_authenticated %}
-    <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-8">
-        <p class="text-sm text-yellow-700">
-            提示：您需要 <a href="{{ url_for('login') }}" class="font-bold underline">登录</a> 后才能使用划词翻译和生词本功能。
-        </p>
-    </div>
-    {% endif %}
-
-    <div class="story-content text-gray-700 font-serif mx-auto max-w-3xl" id="story-container">
-        <p>It was so beautiful out in the country. It was summer. The wheat fields were golden, the oats were green, and down among the green meadows the hay was stacked. There the stork stalked about on his long, red legs, and chattered Egyptian, a language he had learned from his mother.</p>
-        
-        <p>All around the fields and meadows were great forests, and in the midst of the forests lay deep lakes. Yes, it was really beautiful out in the country. Bathed in sunshine stood an old manor house, with a deep moat around it, and from the walls down to the water's edge grew great burdock leaves, so high that a little child could stand upright under the biggest of them.</p>
-        
-        <p>It was as wild a place as the thickest wood, and here sat a duck upon her nest. She had to hatch her ducklings, but she was almost tired out, for it took such a long time, and she rarely had visitors. The other ducks preferred to swim about in the moat rather than waddle up and sit under a burdock leaf to gossip with her.</p>
-        
-        <p>At last one eggshell after another burst open. "Cheep! cheep!" they cried. All the yolks had come to life, and were sticking out their heads.</p>
-    </div>
-
-    <!-- 翻译弹出层 -->
-    <div id="translation-tooltip">
-        <div class="flex justify-between items-start mb-2">
-            <h3 class="font-bold text-lg text-blue-600" id="trans-word"></h3>
-            <button id="close-tooltip" class="text-gray-400 hover:text-gray-600">
-                <i class="fa-solid fa-times"></i>
-            </button>
+<div class="flex flex-col md:flex-row gap-6">
+    <!-- 左侧控制栏 -->
+    <div class="w-full md:w-64 flex-shrink-0">
+        <div class="bg-white rounded-xl shadow-sm p-5 sticky top-20">
+            <h2 class="text-lg font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-book"></i> 阅读控制</h2>
+            
+            <div class="mb-6">
+                <input type="file" id="fileInput" hidden accept=".txt">
+                <button onclick="document.getElementById('fileInput').click()" class="w-full bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 py-2 px-4 rounded-lg transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-file-arrow-up"></i> 导入本地TXT书籍
+                </button>
+                <p class="text-xs text-gray-500 mt-2 text-center">仅限本次会话有效，适合临时阅读</p>
+            </div>
+            
+            <hr class="mb-4">
+            
+            <div class="flex justify-between items-center mb-4">
+                <button id="prevBtn" class="p-2 rounded-full hover:bg-gray-100 text-gray-600 transition" title="上一页">
+                    <i class="fa-solid fa-chevron-left"></i>
+                </button>
+                <div class="text-sm font-medium text-gray-600">
+                    <span id="pageInfo">加载中...</span>
+                </div>
+                <button id="nextBtn" class="p-2 rounded-full hover:bg-gray-100 text-gray-600 transition" title="下一页">
+                    <i class="fa-solid fa-chevron-right"></i>
+                </button>
+            </div>
+            
+            <div class="flex gap-2 mb-4">
+                <input id="pageInput" type="number" min="1" class="w-full border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="页码">
+                <button id="goBtn" class="bg-gray-800 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-gray-700 transition">跳转</button>
+            </div>
+            
+            <div class="progress-bar-container">
+                <div id="barOverall" class="progress-bar-fill"></div>
+            </div>
         </div>
-        <p class="text-gray-700 mb-4" id="trans-result">加载中...</p>
-        <button id="add-vocab-btn" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-1.5 px-3 rounded text-sm transition font-medium flex items-center justify-center gap-2">
-            <i class="fa-solid fa-plus"></i> 加入生词本
-        </button>
-        <div id="add-success-msg" class="hidden text-green-600 text-sm text-center mt-2">
-            <i class="fa-solid fa-check"></i> 已加入
+    </div>
+
+    <!-- 右侧阅读区 -->
+    <div class="flex-grow bg-white rounded-xl shadow-sm p-6 md:p-10 relative">
+        <h1 class="text-3xl font-bold text-center mb-8 font-serif" id="story-title">安徒生童话</h1>
+        
+        {% if not current_user.is_authenticated %}
+        <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-8">
+            <p class="text-sm text-yellow-700">
+                提示：您需要 <a href="{{ url_for('login') }}" class="font-bold underline">登录</a> 后才能将生词保存到云端生词本。
+            </p>
+        </div>
+        {% endif %}
+
+        <div class="story-content text-gray-700 font-serif mx-auto max-w-3xl" id="story-container">
+            <div class="text-center py-20 text-gray-400">
+                <i class="fa-solid fa-spinner fa-spin text-3xl mb-4"></i>
+                <p>正在加载书籍内容...</p>
+            </div>
+        </div>
+
+        <!-- 翻译弹出层 -->
+        <div id="translation-tooltip">
+            <div class="flex justify-between items-start mb-2">
+                <h3 class="font-bold text-lg text-blue-600" id="trans-word"></h3>
+                <button id="close-tooltip" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <p class="text-gray-700 mb-4" id="trans-result">加载中...</p>
+            <button id="add-vocab-btn" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-1.5 px-3 rounded text-sm transition font-medium flex items-center justify-center gap-2">
+                <i class="fa-solid fa-plus"></i> 加入生词本
+            </button>
+            <div id="add-success-msg" class="hidden text-green-600 text-sm text-center mt-2">
+                <i class="fa-solid fa-check"></i> 已加入
+            </div>
         </div>
     </div>
 </div>
@@ -79,8 +139,166 @@
     const addVocabBtn = document.getElementById('add-vocab-btn');
     const closeTooltipBtn = document.getElementById('close-tooltip');
     const addSuccessMsg = document.getElementById('add-success-msg');
-    const storyTitle = document.getElementById('story-title').innerText;
+    const storyTitleEl = document.getElementById('story-title');
+    
+    // 分页相关变量
+    let currentPage = 1;
+    let totalPages = 1;
+    let currentBookTitle = "安徒生童话";
 
+    // --- 阅读器核心逻辑 ---
+    function isUppercaseTitle(t) {
+        const s = t.trim();
+        if (!s) return false;
+        if (!/[A-Z]/.test(s)) return false;
+        return s === s.toUpperCase();
+    }
+
+    function renderContent(raw) {
+        storyContainer.innerHTML = '';
+        tooltip.style.display = 'none';
+        
+        if (!raw || !raw.trim()) {
+            storyContainer.innerHTML = '<div class="text-center py-20 text-gray-400">暂无内容或已到末尾</div>';
+            return;
+        }
+        
+        const parts = raw.split(/\n\s*\n/);
+        parts.forEach(seg => {
+            const p = document.createElement('p');
+            const t = seg.trim();
+            if (isUppercaseTitle(t)) {
+                p.classList.add('title');
+                p.textContent = t;
+                storyContainer.appendChild(p);
+                return;
+            }
+            const lineCount = (t.match(/\n/g) || []).length + 1;
+            if (lineCount >= 3) {
+                p.classList.add('catalog');
+                p.textContent = t;
+                storyContainer.appendChild(p);
+                return;
+            }
+            
+            // 为每个英文单词包裹 span 用于划词翻译
+            const tokens = t.match(/\p{L}+|\P{L}+/gu) || [t];
+            tokens.forEach(tok => {
+                if (/\p{L}/u.test(tok)) {
+                    const span = document.createElement('span');
+                    span.className = 'token';
+                    span.textContent = tok;
+                    p.appendChild(span);
+                } else {
+                    p.appendChild(document.createTextNode(tok));
+                }
+            });
+            storyContainer.appendChild(p);
+        });
+    }
+
+    async function loadPage(page) {
+        try {
+            const r = await fetch(`/api/page?page=${page}`);
+            if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
+            const data = await r.json();
+            
+            currentPage = data.page;
+            totalPages = data.total_pages;
+            currentBookTitle = data.book_title;
+            
+            storyTitleEl.innerText = currentBookTitle;
+            renderContent(data.content || '');
+            
+            // 更新UI状态
+            document.getElementById('pageInfo').textContent = `${currentPage} / ${totalPages}`;
+            document.getElementById('pageInput').value = currentPage;
+            
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            
+            if(currentPage <= 1) {
+                prevBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                prevBtn.disabled = true;
+            } else {
+                prevBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                prevBtn.disabled = false;
+            }
+            
+            if(currentPage >= totalPages) {
+                nextBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                nextBtn.disabled = true;
+            } else {
+                nextBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                nextBtn.disabled = false;
+            }
+            
+            updateProgressOverall();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+        } catch (err) {
+            console.error("Load page error:", err);
+            storyContainer.innerHTML = `<div class="text-red-500 text-center py-10">加载失败: ${err.message}</div>`;
+        }
+    }
+    
+    function updateProgressOverall() {
+        const el = document.getElementById('barOverall');
+        const pct = totalPages ? Math.min(100, Math.max(0, (currentPage-1) / totalPages * 100)) : 0;
+        el.style.width = pct + '%';
+    }
+
+    // 绑定翻页事件
+    document.getElementById('prevBtn').addEventListener('click', () => {
+        if (currentPage > 1) loadPage(currentPage - 1);
+    });
+    document.getElementById('nextBtn').addEventListener('click', () => {
+        if (currentPage < totalPages) loadPage(currentPage + 1);
+    });
+    document.getElementById('goBtn').addEventListener('click', () => {
+        const p = parseInt(document.getElementById('pageInput').value, 10);
+        if (!isNaN(p)) {
+            let target = Math.max(1, Math.min(totalPages, p));
+            loadPage(target);
+        }
+    });
+
+    // 绑定文件上传事件
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        storyContainer.innerHTML = '<div class="text-center py-20 text-blue-500"><i class="fa-solid fa-spinner fa-spin text-3xl mb-4"></i><p>正在处理书籍，请稍候...</p></div>';
+        
+        try {
+            const r = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+            if (!r.ok) {
+                 const errText = await r.text();
+                 throw new Error(`Server error ${r.status}: ${errText}`);
+            }
+            const data = await r.json();
+            if (data.success) {
+                alert(`《${data.title}》导入成功！`);
+                loadPage(1);
+            } else {
+                alert('导入失败: ' + data.error);
+                loadPage(currentPage); // 恢复原状
+            }
+        } catch (err) {
+            console.error(err);
+            alert('导入出错: ' + err.message);
+            loadPage(currentPage); // 恢复原状
+        }
+        e.target.value = ''; // 重置 input
+    });
+
+    // --- 划词翻译逻辑 ---
     let currentWord = '';
     let currentTranslation = '';
     let currentContext = '';
@@ -167,7 +385,7 @@
                         word: currentWord,
                         translation: currentTranslation,
                         context: currentContext,
-                        source: storyTitle
+                        source: currentBookTitle
                     })
                 });
                 
@@ -189,5 +407,8 @@
             }
         });
     }
+
+    // 初始化加载第一页
+    loadPage(1);
 </script>
 {% endblock %}
