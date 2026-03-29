@@ -85,6 +85,7 @@
                 <div class="flex items-center gap-6">
                     {% if current_user.is_authenticated %}
                         <span class="text-gray-700 font-medium hidden sm:inline">Hi, {{ current_user.username }}</span>
+                        <a href="{{ url_for('notebook') }}" class="text-gray-600 hover:text-purple-600 font-medium transition flex items-center gap-1"><i class="fa-solid fa-pen-nib"></i> 笔记本</a>
                         <a href="{{ url_for('vocab_book') }}" class="text-gray-600 hover:text-purple-600 font-medium transition flex items-center gap-1"><i class="fa-solid fa-book-bookmark"></i> 生词本</a>
                         <a href="{{ url_for('logout') }}" class="text-gray-500 hover:text-red-500 font-medium transition"><i class="fa-solid fa-sign-out-alt"></i> 退出</a>
                     {% else %}

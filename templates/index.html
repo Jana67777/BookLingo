@@ -424,6 +424,7 @@
                 alert(`《${data.title}》导入成功！`);
                 currentBookId = data.book_id;
                 loadPage(1);
+                if (isAuthenticated) loadBookshelf(); // 上传成功后自动刷新书架
             } else {
                 alert('导入失败: ' + data.error);
                 loadPage(currentPage); // 恢复原状
@@ -440,6 +441,8 @@
     let currentWord = '';
     let currentTranslation = '';
     let currentContext = '';
+    let longPressTimer = null;
+    let isLongPress = false;
     
     // 高亮相关状态
     let currentSelection = null;
@@ -624,36 +627,28 @@
         }
     });
 
-    storyContainer.addEventListener('click', async (e) => {
-        const span = e.target;
-        if (!span || !span.classList || !span.classList.contains('token')) {
-            return;
-        }
-        
-        const text = span.textContent.trim();
-        
+    function handleTranslateRequest(text, spanElement, clientX, clientY) {
         // 获取出处句子
         let context = '';
-        if(span.parentElement && span.parentElement.tagName === 'P') {
-            context = span.parentElement.innerText;
+        if(spanElement.parentElement && spanElement.parentElement.tagName === 'P') {
+            context = spanElement.parentElement.innerText;
         }
 
         currentWord = text;
         currentContext = context;
         
         // 显示 Tooltip
-        const rect = span.getBoundingClientRect();
-        
         tooltip.style.display = 'block';
+        
         // 确保不会溢出屏幕右侧
         const popoverWidth = 320;
-        let leftPos = rect.left + window.scrollX;
+        let leftPos = clientX + window.scrollX;
         if (leftPos + popoverWidth > window.innerWidth) {
             leftPos = window.innerWidth - popoverWidth - 20;
         }
         
         tooltip.style.left = `${leftPos}px`;
-        tooltip.style.top = `${rect.bottom + window.scrollY + 10}px`;
+        tooltip.style.top = `${clientY + window.scrollY + 10}px`;
         
         // 触发动画
         requestAnimationFrame(() => {
@@ -667,28 +662,62 @@
         addVocabBtn.style.display = isAuthenticated ? 'flex' : 'none';
         addSuccessMsg.style.display = 'none';
         
-        try {
-            const response = await fetch('/api/translate', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ word: text })
-            });
-            
-            const data = await response.json();
-            if (response.ok) {
+        fetch('/api/translate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ word: text })
+        }).then(res => res.json()).then(data => {
+            if (data.translation) {
                 currentTranslation = data.translation;
                 transResult.innerText = currentTranslation;
             } else {
                 transResult.innerText = '翻译失败：' + (data.error || '未知错误');
                 addVocabBtn.style.display = 'none';
             }
-        } catch (error) {
+        }).catch(err => {
             transResult.innerText = '网络错误，请稍后再试';
             addVocabBtn.style.display = 'none';
+        });
+    }
+
+    // 电脑端右键翻译
+    storyContainer.addEventListener('contextmenu', (e) => {
+        const span = e.target;
+        if (span && span.classList && span.classList.contains('token')) {
+            e.preventDefault(); // 阻止默认右键菜单
+            const text = span.textContent.trim();
+            handleTranslateRequest(text, span, e.clientX, e.clientY);
         }
     });
+
+    // 手机端长按翻译
+    storyContainer.addEventListener('touchstart', (e) => {
+        const span = e.target;
+        if (span && span.classList && span.classList.contains('token')) {
+            isLongPress = false;
+            const touch = e.touches[0];
+            longPressTimer = setTimeout(() => {
+                isLongPress = true;
+                const text = span.textContent.trim();
+                handleTranslateRequest(text, span, touch.clientX, touch.clientY);
+                // 震动反馈(如果设备支持)
+                if(navigator.vibrate) navigator.vibrate(50);
+            }, 600); // 600ms算作长按
+        }
+    }, {passive: true});
+
+    storyContainer.addEventListener('touchend', () => {
+        if (longPressTimer) clearTimeout(longPressTimer);
+    });
+    
+    storyContainer.addEventListener('touchmove', () => {
+        if (longPressTimer) clearTimeout(longPressTimer);
+    }, {passive: true});
+
+    // 防止手机端长按选中文字后触发原生菜单干扰翻译，如果需要可选则保留
+    // 但原生的 selectionchange 依然会触发用于划线
 
     if (isAuthenticated) {
         // 加入生词本

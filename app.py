@@ -298,6 +298,20 @@ def vocab_book():
     vocabs = Vocab.query.filter_by(user_id=current_user.id).order_by(Vocab.id.desc()).all()
     return render_template('vocab.html', vocabs=vocabs)
 
+@app.route('/notebook')
+@login_required
+def notebook():
+    # 获取用户所有的笔记及其对应的高亮句子和书名
+    notes = db.session.query(Note, Highlight, Book).join(
+        Highlight, Note.highlight_id == Highlight.id
+    ).join(
+        Book, Note.book_id == Book.id
+    ).filter(
+        Note.user_id == current_user.id
+    ).order_by(Note.created_at.desc()).all()
+    
+    return render_template('notebook.html', notes=notes)
+
 # --- 阅读器相关路由 (移植自旧版本并重构为持久化) ---
 @app.route('/api/page')
 def api_page():
