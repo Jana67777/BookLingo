@@ -4,7 +4,6 @@
 
 {% block extra_head %}
 <style>
-    /* Tooltip 高级毛玻璃样式 */
     #translation-tooltip {
         position: absolute;
         display: none;
@@ -525,7 +524,7 @@
         e.preventDefault();
         if (!currentSelection || !isAuthenticated || !currentBookId) {
             if (!isAuthenticated) alert("请先登录！");
-            if (!currentBookId) alert("默认演示文本不支持笔记，请上传您的专属书籍。");
+            if (!currentBookId) alert("默认演示文本不支持笔记，请上传您的书籍。");
             return;
         }
         
