@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}我的生词本 - 安徒生童话阅读器{% endblock %}
+{% block title %}我的生词本-BookLingo{% endblock %}
 
 {% block content %}
 <div class="bg-white rounded-xl shadow-sm p-6 md:p-10">
@@ -36,7 +36,7 @@
             <i class="fa-solid fa-book-open-reader text-5xl"></i>
         </div>
         <h3 class="text-lg font-medium text-gray-600 mb-2">生词本空空如也</h3>
-        <p class="text-gray-500 mb-6">在阅读童话时，选中不认识的单词即可翻译并加入生词本。</p>
+        <p class="text-gray-500 mb-6">在阅读时，选中不认识的单词即可翻译并选择加入生词本。</p>
         <a href="{{ url_for('index') }}" class="inline-block bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
             去阅读
         </a>

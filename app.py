@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 import requests
 import os
 import re
@@ -40,7 +41,39 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    vocabs = db.relationship('Vocab', backref='user', lazy=True)
+    vocabs = db.relationship('Vocab', backref='user', lazy=True, cascade="all, delete-orphan")
+    books = db.relationship('Book', backref='owner', lazy=True, cascade="all, delete-orphan")
+    highlights = db.relationship('Highlight', backref='user', lazy=True, cascade="all, delete-orphan")
+    notes = db.relationship('Note', backref='user', lazy=True, cascade="all, delete-orphan")
+
+class Book(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    total_pages = db.Column(db.Integer, default=1)
+    current_page = db.Column(db.Integer, default=1) # 记录用户阅读进度
+    upload_date = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+class Highlight(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.Text, nullable=False) # 高亮的文本内容
+    page_num = db.Column(db.Integer, nullable=False) # 所在页码
+    start_offset = db.Column(db.Integer, nullable=False) # 在该页内的起始位置(可选)
+    end_offset = db.Column(db.Integer, nullable=False) # 在该页内的结束位置(可选)
+    color = db.Column(db.String(20), default="#fef08a") # 高亮颜色
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    book_id = db.Column(db.Integer, db.ForeignKey('book.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+class Note(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False) # 笔记内容
+    highlight_id = db.Column(db.Integer, db.ForeignKey('highlight.id'), nullable=True) # 关联的高亮（如果有）
+    page_num = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    book_id = db.Column(db.Integer, db.ForeignKey('book.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
 class Vocab(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -58,12 +91,7 @@ def load_user(user_id):
 with app.app_context():
     db.create_all()
 
-# --- 阅读器全局变量 (用于简单的内存缓存，在Serverless环境中不持久，仅作为示例缓存) ---
-# 注意：在真实的 Vercel 部署中，如果需要支持多用户同时读不同的书，应将书籍内容或进度存入数据库。
-# 考虑到纯展示和简化，这里暂用全局变量（每次请求可能丢失状态），但前端可以通过上传重置它。
-GLOBAL_TEXT = ""
-GLOBAL_PAGES = []
-GLOBAL_BOOK_TITLE = "BookLingo 默认读物"
+# --- 阅读器核心逻辑 ---
 PAGE_SIZE = 2000
 
 def paginate_text(text: str, page_size: int):
@@ -98,15 +126,15 @@ def paginate_text(text: str, page_size: int):
         i = safe_end
     return pages
 
-# 初始化加载默认的童话
-default_book_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Andersen's_fairy_tales.txt")
-if os.path.exists(default_book_path):
-    try:
-        with open(default_book_path, "r", encoding="utf-8") as f:
-            GLOBAL_TEXT = f.read()
-            GLOBAL_PAGES = paginate_text(GLOBAL_TEXT, PAGE_SIZE)
-    except Exception as e:
-        print("Failed to load default book:", e)
+def get_default_book_content():
+    default_book_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Andersen's_fairy_tales.txt")
+    if os.path.exists(default_book_path):
+        try:
+            with open(default_book_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            print("Failed to load default book:", e)
+    return "Welcome to BookLingo! Please login and upload a book to start reading."
 
 # --- 路由 (Task 1: Auth) ---
 @app.route('/register', methods=['GET', 'POST'])
@@ -208,30 +236,68 @@ def vocab_book():
     vocabs = Vocab.query.filter_by(user_id=current_user.id).order_by(Vocab.id.desc()).all()
     return render_template('vocab.html', vocabs=vocabs)
 
-# --- 阅读器相关路由 (移植自旧版本) ---
+# --- 阅读器相关路由 (移植自旧版本并重构为持久化) ---
 @app.route('/api/page')
 def api_page():
-    total = max(1, len(GLOBAL_PAGES))
+    book_id = request.args.get('book_id')
+    
+    # 未登录或未指定书籍时，提供默认的展示内容
+    if not current_user.is_authenticated or not book_id:
+        text = get_default_book_content()
+        pages = paginate_text(text, PAGE_SIZE)
+        total = max(1, len(pages))
+        try:
+            page = int(request.args.get("page", "1"))
+        except Exception:
+            page = 1
+        page = max(1, min(page, total))
+        return jsonify({
+            "page": page, 
+            "total_pages": total, 
+            "page_size": PAGE_SIZE, 
+            "content": pages[page-1] if pages else "", 
+            "book_title": "BookLingo 演示读物",
+            "book_id": None
+        })
+        
+    # 已登录并读取专属书籍
+    book = db.session.get(Book, int(book_id))
+    if not book or book.user_id != current_user.id:
+        return jsonify({"error": "Book not found"}), 404
+        
+    pages = paginate_text(book.content, PAGE_SIZE)
+    total = max(1, len(pages))
+    
     try:
         page = int(request.args.get("page", "1"))
     except Exception:
-        page = 1
-    if page < 1:
-        page = 1
-    if page > total:
-        page = total
-    content = GLOBAL_PAGES[page-1] if GLOBAL_PAGES else ""
+        page = book.current_page
+        
+    page = max(1, min(page, total))
+    
+    # 自动保存阅读进度
+    if book.current_page != page:
+        book.current_page = page
+        db.session.commit()
+        
+    # 获取该页的高亮和笔记
+    highlights = Highlight.query.filter_by(book_id=book.id, page_num=page).all()
+    notes = Note.query.filter_by(book_id=book.id, page_num=page).all()
+
     return jsonify({
         "page": page, 
         "total_pages": total, 
         "page_size": PAGE_SIZE, 
-        "content": content, 
-        "book_title": GLOBAL_BOOK_TITLE
+        "content": pages[page-1] if pages else "", 
+        "book_title": book.title,
+        "book_id": book.id,
+        "highlights": [{"id": h.id, "text": h.text, "color": h.color} for h in highlights],
+        "notes": [{"id": n.id, "content": n.content, "highlight_id": n.highlight_id} for n in notes]
     })
 
 @app.route('/api/upload', methods=['POST'])
+@login_required
 def upload_file():
-    global GLOBAL_TEXT, GLOBAL_PAGES, GLOBAL_BOOK_TITLE
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
     file = request.files['file']
@@ -251,13 +317,64 @@ def upload_file():
         if text is None:
             return jsonify({"error": "Unsupported encoding"}), 400
             
-        GLOBAL_TEXT = text
-        GLOBAL_PAGES = paginate_text(GLOBAL_TEXT, PAGE_SIZE)
-        GLOBAL_BOOK_TITLE = os.path.splitext(file.filename)[0]
+        title = os.path.splitext(file.filename)[0]
+        pages = paginate_text(text, PAGE_SIZE)
         
-        return jsonify({"success": True, "title": GLOBAL_BOOK_TITLE, "total_pages": len(GLOBAL_PAGES)})
+        # 将书本存入数据库
+        new_book = Book(
+            title=title,
+            content=text,
+            total_pages=len(pages),
+            current_page=1,
+            user_id=current_user.id
+        )
+        db.session.add(new_book)
+        db.session.commit()
+        
+        return jsonify({"success": True, "title": title, "book_id": new_book.id, "total_pages": len(pages)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/books', methods=['GET'])
+@login_required
+def list_books():
+    books = Book.query.filter_by(user_id=current_user.id).order_by(Book.upload_date.desc()).all()
+    return jsonify({
+        "books": [{"id": b.id, "title": b.title, "current_page": b.current_page, "total_pages": b.total_pages} for b in books]
+    })
+
+# --- 高亮与笔记 API ---
+@app.route('/api/highlight', methods=['POST'])
+@login_required
+def add_highlight():
+    data = request.get_json()
+    new_highlight = Highlight(
+        text=data['text'],
+        page_num=data['page_num'],
+        start_offset=data.get('start_offset', 0),
+        end_offset=data.get('end_offset', 0),
+        color=data.get('color', '#fef08a'),
+        book_id=data['book_id'],
+        user_id=current_user.id
+    )
+    db.session.add(new_highlight)
+    db.session.commit()
+    
+    # 如果同时提交了笔记
+    note_id = None
+    if data.get('note_content'):
+        new_note = Note(
+            content=data['note_content'],
+            highlight_id=new_highlight.id,
+            page_num=data['page_num'],
+            book_id=data['book_id'],
+            user_id=current_user.id
+        )
+        db.session.add(new_note)
+        db.session.commit()
+        note_id = new_note.id
+        
+    return jsonify({"success": True, "highlight_id": new_highlight.id, "note_id": note_id})
 
 @app.route('/')
 def index():

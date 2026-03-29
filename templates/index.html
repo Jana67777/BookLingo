@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}BookLingo 阅读器{% endblock %}
+{% block title %}BookLingo{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -36,6 +36,80 @@
     
     .token { cursor: pointer; transition: all 0.2s ease; border-radius: 4px; padding: 0 2px; margin: 0 -2px; }
     .token:hover { background-color: rgba(139, 92, 246, 0.15); color: #6d28d9; }
+    
+    /* 高亮划线样式 */
+    .highlighted {
+        background-color: #fef08a; /* 默认黄色高亮 */
+        border-radius: 3px;
+        padding: 2px 0;
+        cursor: pointer;
+    }
+    .highlighted.color-blue { background-color: #bfdbfe; }
+    .highlighted.color-green { background-color: #bbf7d0; }
+    .highlighted.color-pink { background-color: #fbcfe8; }
+    
+    /* 划线工具栏弹窗 */
+    #selection-toolbar {
+        position: absolute;
+        display: none;
+        background: rgba(31, 41, 55, 0.95);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-radius: 0.75rem;
+        padding: 0.5rem;
+        z-index: 100;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+        display: flex;
+        gap: 0.5rem;
+        transform: translateY(10px);
+        opacity: 0;
+        transition: opacity 0.2s, transform 0.2s;
+    }
+    
+    .toolbar-btn {
+        color: white;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.2s;
+    }
+    .toolbar-btn:hover { background-color: rgba(255, 255, 255, 0.2); }
+    
+    .color-picker {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        cursor: pointer;
+        border: 2px solid transparent;
+    }
+    .color-picker:hover { transform: scale(1.1); }
+    .color-picker.active { border-color: white; }
+    
+    /* 做笔记弹窗 */
+    #note-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(4px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+    }
+    .note-modal-content {
+        background: white;
+        border-radius: 1rem;
+        width: 90%;
+        max-width: 400px;
+        padding: 1.5rem;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        transform: scale(0.95);
+        opacity: 0;
+        transition: all 0.2s;
+    }
     
     .progress-bar-container {
         width: 100%;
@@ -77,6 +151,17 @@
             
             <div class="w-full h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent mb-8"></div>
             
+            <!-- 我的书架 -->
+            {% if current_user.is_authenticated %}
+            <div class="mb-8">
+                <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3"><i class="fa-solid fa-book-open-reader"></i> 我的书架</h3>
+                <div id="bookshelf-list" class="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                    <div class="text-center py-4 text-xs text-gray-400"><i class="fa-solid fa-circle-notch fa-spin"></i> 加载中...</div>
+                </div>
+            </div>
+            <div class="w-full h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent mb-8"></div>
+            {% endif %}
+
             <div class="flex justify-between items-center mb-6 bg-white/40 p-2 rounded-2xl border border-white/60 shadow-inner">
                 <button id="prevBtn" class="w-10 h-10 rounded-full bg-white shadow-sm hover:shadow text-gray-600 hover:text-purple-600 transition-all flex items-center justify-center" title="上一页">
                     <i class="fa-solid fa-chevron-left"></i>
@@ -120,6 +205,35 @@
             </div>
         </div>
 
+        <!-- 选中文本工具栏 (划线/笔记) -->
+        <div id="selection-toolbar">
+            <div class="flex items-center gap-2 border-r border-gray-600 pr-2 mr-1">
+                <div class="color-picker active bg-yellow-200" data-color="yellow"></div>
+                <div class="color-picker bg-blue-200" data-color="blue"></div>
+                <div class="color-picker bg-green-200" data-color="green"></div>
+                <div class="color-picker bg-pink-200" data-color="pink"></div>
+            </div>
+            <button id="btn-highlight" class="toolbar-btn text-sm font-medium" title="划线">
+                <i class="fa-solid fa-highlighter mr-1"></i> 划线
+            </button>
+            <button id="btn-note" class="toolbar-btn text-sm font-medium" title="写想法">
+                <i class="fa-solid fa-pen-to-square mr-1"></i> 想法
+            </button>
+        </div>
+
+        <!-- 笔记输入弹窗 -->
+        <div id="note-modal">
+            <div class="note-modal-content">
+                <h3 class="text-lg font-bold text-gray-800 mb-4">记录想法</h3>
+                <div class="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-600 border border-gray-100" id="note-target-text"></div>
+                <textarea id="note-input" class="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none resize-none" rows="4" placeholder="写下你的读书感悟..."></textarea>
+                <div class="flex justify-end gap-3 mt-4">
+                    <button id="btn-cancel-note" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors">取消</button>
+                    <button id="btn-save-note" class="px-4 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors">保存</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 翻译弹出层 -->
         <div id="translation-tooltip">
             <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2">
@@ -159,7 +273,8 @@
     // 分页相关变量
     let currentPage = 1;
     let totalPages = 1;
-    let currentBookTitle = "安徒生童话";
+    let currentBookTitle = "BookLingo";
+    let currentBookId = null;
 
     // --- 阅读器核心逻辑 ---
     function isUppercaseTitle(t) {
@@ -214,16 +329,23 @@
 
     async function loadPage(page) {
         try {
-            const r = await fetch(`/api/page?page=${page}`);
+            const url = currentBookId ? `/api/page?page=${page}&book_id=${currentBookId}` : `/api/page?page=${page}`;
+            const r = await fetch(url);
             if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
             const data = await r.json();
             
             currentPage = data.page;
             totalPages = data.total_pages;
             currentBookTitle = data.book_title;
+            currentBookId = data.book_id;
             
             storyTitleEl.innerText = currentBookTitle;
             renderContent(data.content || '');
+            
+            // 应用高亮和笔记
+            if (data.highlights) {
+                applyHighlights(data.highlights);
+            }
             
             // 更新UI状态
             document.getElementById('pageInfo').textContent = `${currentPage} / ${totalPages}`;
@@ -300,6 +422,7 @@
             const data = await r.json();
             if (data.success) {
                 alert(`《${data.title}》导入成功！`);
+                currentBookId = data.book_id;
                 loadPage(1);
             } else {
                 alert('导入失败: ' + data.error);
@@ -313,12 +436,179 @@
         e.target.value = ''; // 重置 input
     });
 
-    // --- 划词翻译逻辑 ---
+    // --- 划词翻译与高亮逻辑 ---
     let currentWord = '';
     let currentTranslation = '';
     let currentContext = '';
+    
+    // 高亮相关状态
+    let currentSelection = null;
+    let currentColor = 'yellow';
+    const selectionToolbar = document.getElementById('selection-toolbar');
+    const noteModal = document.getElementById('note-modal');
+    
+    // 监听文本选中事件 (模拟微信读书的划线)
+    document.addEventListener('selectionchange', () => {
+        const selection = window.getSelection();
+        const text = selection.toString().trim();
+        
+        if (text.length > 0 && storyContainer.contains(selection.anchorNode)) {
+            const range = selection.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            
+            // 显示高亮工具栏
+            selectionToolbar.style.display = 'flex';
+            
+            // 计算位置
+            let leftPos = rect.left + window.scrollX + (rect.width / 2) - (selectionToolbar.offsetWidth / 2);
+            let topPos = rect.top + window.scrollY - selectionToolbar.offsetHeight - 10;
+            
+            // 边界检查
+            if (topPos < window.scrollY + 60) {
+                topPos = rect.bottom + window.scrollY + 10; // 如果上方空间不足，显示在下方
+            }
+            if (leftPos < 10) leftPos = 10;
+            
+            selectionToolbar.style.left = `${leftPos}px`;
+            selectionToolbar.style.top = `${topPos}px`;
+            
+            requestAnimationFrame(() => {
+                selectionToolbar.style.opacity = '1';
+                selectionToolbar.style.transform = 'translateY(0)';
+            });
+            
+            currentSelection = { text, range: range.cloneRange() };
+            
+            // 如果选中了单个单词或短语，自动触发翻译（旧有逻辑的优化）
+            if (text.length < 50 && /^[a-zA-Z\s'-]+$/.test(text)) {
+                 // 不覆盖原有的翻译弹窗逻辑，但在有工具栏时稍微调整位置
+                 // （保持原有点击单词翻译的逻辑在 click 事件中处理）
+            }
+        } else {
+            hideSelectionToolbar();
+        }
+    });
+    
+    function hideSelectionToolbar() {
+        selectionToolbar.style.opacity = '0';
+        selectionToolbar.style.transform = 'translateY(10px)';
+        setTimeout(() => selectionToolbar.style.display = 'none', 200);
+    }
+    
+    // 颜色选择器
+    document.querySelectorAll('.color-picker').forEach(picker => {
+        picker.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // 防止失去选区
+            document.querySelectorAll('.color-picker').forEach(p => p.classList.remove('active'));
+            picker.classList.add('active');
+            currentColor = picker.dataset.color;
+        });
+    });
+    
+    // 执行高亮
+    document.getElementById('btn-highlight').addEventListener('mousedown', async (e) => {
+        e.preventDefault();
+        if (!currentSelection || !isAuthenticated || !currentBookId) {
+            if (!isAuthenticated) alert("请先登录！");
+            if (!currentBookId) alert("默认演示文本不支持高亮，请上传您的专属书籍。");
+            return;
+        }
+        
+        await saveHighlight(currentSelection.text, currentColor, null);
+        window.getSelection().removeAllRanges();
+        hideSelectionToolbar();
+        loadPage(currentPage); // 重新加载以渲染高亮
+    });
+    
+    // 写笔记
+    document.getElementById('btn-note').addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        if (!currentSelection || !isAuthenticated || !currentBookId) {
+            if (!isAuthenticated) alert("请先登录！");
+            if (!currentBookId) alert("默认演示文本不支持笔记，请上传您的专属书籍。");
+            return;
+        }
+        
+        document.getElementById('note-target-text').innerText = `"${currentSelection.text}"`;
+        document.getElementById('note-input').value = '';
+        noteModal.style.display = 'flex';
+        setTimeout(() => {
+            document.querySelector('.note-modal-content').style.opacity = '1';
+            document.querySelector('.note-modal-content').style.transform = 'scale(1)';
+        }, 10);
+    });
+    
+    // 保存笔记
+    document.getElementById('btn-save-note').addEventListener('click', async () => {
+        const noteContent = document.getElementById('note-input').value.trim();
+        if (!noteContent) {
+            alert("笔记内容不能为空");
+            return;
+        }
+        
+        await saveHighlight(currentSelection.text, currentColor, noteContent);
+        closeNoteModal();
+        window.getSelection().removeAllRanges();
+        hideSelectionToolbar();
+        loadPage(currentPage);
+    });
+    
+    document.getElementById('btn-cancel-note').addEventListener('click', closeNoteModal);
+    
+    function closeNoteModal() {
+        document.querySelector('.note-modal-content').style.opacity = '0';
+        document.querySelector('.note-modal-content').style.transform = 'scale(0.95)';
+        setTimeout(() => noteModal.style.display = 'none', 200);
+    }
+    
+    async function saveHighlight(text, color, noteContent) {
+        // 简化的偏移量计算（由于 DOM 结构复杂，这里简化为纯文本匹配，真实场景可使用 Range 的 startOffset）
+        try {
+            await fetch('/api/highlight', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: text,
+                    page_num: currentPage,
+                    color: color,
+                    book_id: currentBookId,
+                    note_content: noteContent
+                })
+            });
+        } catch (e) {
+            console.error("Save highlight failed", e);
+        }
+    }
+    
+    function applyHighlights(highlights) {
+        // 简单的高亮渲染逻辑：遍历段落，将匹配的文本替换为带样式的 span
+        // 这是一个基础实现，对于跨标签的高亮处理较复杂，这里仅作单节点内的文本匹配
+        if (!highlights || highlights.length === 0) return;
+        
+        const paragraphs = storyContainer.querySelectorAll('p:not(.title):not(.catalog)');
+        
+        highlights.forEach(hl => {
+            const colorClass = `color-${hl.color}`; // 映射颜色到自定义 class
+            paragraphs.forEach(p => {
+                // 简单的字符串替换实现高亮显示（避免破坏 token 结构，在真实复杂场景应使用 Range 还原）
+                // 因为文本可能被 <span> 拆分，简单的 innerHTML 替换在这里仅作为基础示例
+                if (p.textContent.includes(hl.text)) {
+                    // 标记出该段落有高亮，这里为了不破坏翻译功能，我们在段落旁边加个笔记图标
+                    p.style.position = 'relative';
+                    const icon = document.createElement('i');
+                    icon.className = `fa-solid fa-highlighter absolute -left-6 top-1 text-${hl.color}-400 text-sm opacity-50`;
+                    icon.title = hl.text;
+                    p.appendChild(icon);
+                    p.style.backgroundColor = hl.color === 'yellow' ? 'rgba(254, 240, 138, 0.3)' : 
+                                              hl.color === 'blue' ? 'rgba(191, 219, 254, 0.3)' :
+                                              hl.color === 'green' ? 'rgba(187, 247, 208, 0.3)' : 'rgba(251, 207, 232, 0.3)';
+                    p.style.borderRadius = '4px';
+                }
+            });
+        });
+    }
 
-    // 关闭弹出层
+    // 关闭翻译弹出层
     closeTooltipBtn.addEventListener('click', () => {
         tooltip.style.opacity = '0';
         tooltip.style.transform = 'translateY(10px) scale(0.95)';
@@ -439,7 +729,38 @@
         });
     }
 
+    // 加载书架
+    async function loadBookshelf() {
+        if (!isAuthenticated) return;
+        try {
+            const r = await fetch('/api/books');
+            if (r.ok) {
+                const data = await r.json();
+                const list = document.getElementById('bookshelf-list');
+                list.innerHTML = '';
+                if (data.books.length === 0) {
+                    list.innerHTML = '<div class="text-xs text-gray-400 py-2">书架空空如也，快去导入吧</div>';
+                    return;
+                }
+                data.books.forEach(b => {
+                    const div = document.createElement('div');
+                    div.className = `p-2 rounded-lg text-sm cursor-pointer transition-colors flex justify-between items-center ${b.id === currentBookId ? 'bg-purple-100 text-purple-800 font-bold' : 'hover:bg-gray-100 text-gray-600'}`;
+                    div.innerHTML = `<span class="truncate max-w-[120px]">${b.title}</span><span class="text-xs opacity-60">${Math.round(b.current_page/b.total_pages*100)}%</span>`;
+                    div.onclick = () => {
+                        currentBookId = b.id;
+                        loadPage(b.current_page);
+                        loadBookshelf(); // 刷新高亮状态
+                    };
+                    list.appendChild(div);
+                });
+            }
+        } catch (e) {
+            console.error("Failed to load bookshelf");
+        }
+    }
+
     // 初始化加载第一页
     loadPage(1);
+    if(isAuthenticated) loadBookshelf();
 </script>
 {% endblock %}
