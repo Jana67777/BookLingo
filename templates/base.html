@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}安徒生童话在线阅读器{% endblock %}</title>
+    <!-- 使用 Tailwind CSS 进行多端适配 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+    <!-- 导航栏 -->
+    <nav class="bg-white shadow-md">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <a href="{{ url_for('index') }}" class="text-xl font-bold text-blue-600 flex items-center gap-2">
+                    <i class="fa-solid fa-book-open"></i> 安徒生童话
+                </a>
+                <div class="flex items-center gap-4">
+                    {% if current_user.is_authenticated %}
+                        <span class="text-gray-600 hidden sm:inline">欢迎, {{ current_user.username }}</span>
+                        <a href="{{ url_for('vocab_book') }}" class="text-gray-600 hover:text-blue-600 transition"><i class="fa-solid fa-book"></i> 生词本</a>
+                        <a href="{{ url_for('logout') }}" class="text-gray-600 hover:text-red-600 transition"><i class="fa-solid fa-sign-out-alt"></i> 退出</a>
+                    {% else %}
+                        <a href="{{ url_for('login') }}" class="text-gray-600 hover:text-blue-600 transition">登录</a>
+                        <a href="{{ url_for('register') }}" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">注册</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 闪存消息 -->
+    <div class="max-w-6xl mx-auto px-4 mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="p-4 mb-4 rounded-lg {% if category == 'success' %}bg-green-100 text-green-700{% else %}bg-red-100 text-red-700{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- 主要内容区 -->
+    <main class="max-w-6xl mx-auto px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

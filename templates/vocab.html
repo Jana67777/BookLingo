@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block title %}我的生词本 - 安徒生童话阅读器{% endblock %}
+
+{% block content %}
+<div class="bg-white rounded-xl shadow-sm p-6 md:p-10">
+    <div class="flex justify-between items-center mb-8">
+        <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-book text-blue-600"></i> 我的生词本</h2>
+        <span class="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">共 {{ vocabs|length }} 个单词</span>
+    </div>
+
+    {% if vocabs %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for vocab in vocabs %}
+        <div class="border border-gray-200 rounded-lg p-5 hover:shadow-md transition bg-gray-50 hover:bg-white">
+            <div class="flex justify-between items-start mb-3">
+                <h3 class="text-xl font-bold text-blue-600">{{ vocab.word }}</h3>
+            </div>
+            <p class="text-gray-800 font-medium mb-4">{{ vocab.translation }}</p>
+            
+            {% if vocab.context %}
+            <div class="bg-yellow-50 p-3 rounded text-sm text-gray-600 border-l-2 border-yellow-400 mb-3 font-serif">
+                "{{ vocab.context }}"
+            </div>
+            {% endif %}
+            
+            <div class="text-xs text-gray-400 flex justify-between items-center mt-auto">
+                <span><i class="fa-solid fa-book-open"></i> 出处: {{ vocab.source }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-16 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+        <div class="text-gray-400 mb-4">
+            <i class="fa-solid fa-book-open-reader text-5xl"></i>
+        </div>
+        <h3 class="text-lg font-medium text-gray-600 mb-2">生词本空空如也</h3>
+        <p class="text-gray-500 mb-6">在阅读童话时，选中不认识的单词即可翻译并加入生词本。</p>
+        <a href="{{ url_for('index') }}" class="inline-block bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
+            去阅读
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

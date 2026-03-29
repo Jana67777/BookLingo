@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+
+{% block title %}阅读 - 安徒生童话阅读器{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Tooltip 样式 */
+    #translation-tooltip {
+        position: absolute;
+        display: none;
+        background: white;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+        padding: 1rem;
+        z-index: 50;
+        width: max-content;
+        max-width: 300px;
+    }
+    
+    .story-content {
+        line-height: 1.8;
+        font-size: 1.125rem;
+    }
+    .story-content p {
+        margin-bottom: 1.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bg-white rounded-xl shadow-sm p-6 md:p-10 relative">
+    <h1 class="text-3xl font-bold text-center mb-8 font-serif" id="story-title">The Ugly Duckling</h1>
+    
+    {% if not current_user.is_authenticated %}
+    <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-8">
+        <p class="text-sm text-yellow-700">
+            提示：您需要 <a href="{{ url_for('login') }}" class="font-bold underline">登录</a> 后才能使用划词翻译和生词本功能。
+        </p>
+    </div>
+    {% endif %}
+
+    <div class="story-content text-gray-700 font-serif mx-auto max-w-3xl" id="story-container">
+        <p>It was so beautiful out in the country. It was summer. The wheat fields were golden, the oats were green, and down among the green meadows the hay was stacked. There the stork stalked about on his long, red legs, and chattered Egyptian, a language he had learned from his mother.</p>
+        
+        <p>All around the fields and meadows were great forests, and in the midst of the forests lay deep lakes. Yes, it was really beautiful out in the country. Bathed in sunshine stood an old manor house, with a deep moat around it, and from the walls down to the water's edge grew great burdock leaves, so high that a little child could stand upright under the biggest of them.</p>
+        
+        <p>It was as wild a place as the thickest wood, and here sat a duck upon her nest. She had to hatch her ducklings, but she was almost tired out, for it took such a long time, and she rarely had visitors. The other ducks preferred to swim about in the moat rather than waddle up and sit under a burdock leaf to gossip with her.</p>
+        
+        <p>At last one eggshell after another burst open. "Cheep! cheep!" they cried. All the yolks had come to life, and were sticking out their heads.</p>
+    </div>
+
+    <!-- 翻译弹出层 -->
+    <div id="translation-tooltip">
+        <div class="flex justify-between items-start mb-2">
+            <h3 class="font-bold text-lg text-blue-600" id="trans-word"></h3>
+            <button id="close-tooltip" class="text-gray-400 hover:text-gray-600">
+                <i class="fa-solid fa-times"></i>
+            </button>
+        </div>
+        <p class="text-gray-700 mb-4" id="trans-result">加载中...</p>
+        <button id="add-vocab-btn" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-1.5 px-3 rounded text-sm transition font-medium flex items-center justify-center gap-2">
+            <i class="fa-solid fa-plus"></i> 加入生词本
+        </button>
+        <div id="add-success-msg" class="hidden text-green-600 text-sm text-center mt-2">
+            <i class="fa-solid fa-check"></i> 已加入
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const isAuthenticated = {% if current_user.is_authenticated %}true{% else %}false{% endif %};
+    const storyContainer = document.getElementById('story-container');
+    const tooltip = document.getElementById('translation-tooltip');
+    const transWord = document.getElementById('trans-word');
+    const transResult = document.getElementById('trans-result');
+    const addVocabBtn = document.getElementById('add-vocab-btn');
+    const closeTooltipBtn = document.getElementById('close-tooltip');
+    const addSuccessMsg = document.getElementById('add-success-msg');
+    const storyTitle = document.getElementById('story-title').innerText;
+
+    let currentWord = '';
+    let currentTranslation = '';
+    let currentContext = '';
+
+    // 关闭弹出层
+    closeTooltipBtn.addEventListener('click', () => {
+        tooltip.style.display = 'none';
+    });
+
+    // 点击其他地方关闭
+    document.addEventListener('mousedown', (e) => {
+        if (!tooltip.contains(e.target) && !storyContainer.contains(e.target)) {
+            tooltip.style.display = 'none';
+        }
+    });
+
+    if (isAuthenticated) {
+        storyContainer.addEventListener('mouseup', async (e) => {
+            const selection = window.getSelection();
+            const text = selection.toString().trim();
+            
+            // 简单判断是否为单词或短语 (限制长度，只包含字母和空格)
+            if (text.length > 0 && text.length < 50 && /^[a-zA-Z\s'-]+$/.test(text)) {
+                // 获取出处句子
+                let node = selection.anchorNode;
+                let context = '';
+                if(node && node.parentElement && node.parentElement.tagName === 'P') {
+                    context = node.parentElement.innerText;
+                }
+
+                currentWord = text;
+                currentContext = context;
+                
+                // 显示 Tooltip
+                const range = selection.getRangeAt(0);
+                const rect = range.getBoundingClientRect();
+                
+                tooltip.style.display = 'block';
+                tooltip.style.left = `${rect.left + window.scrollX}px`;
+                tooltip.style.top = `${rect.bottom + window.scrollY + 10}px`;
+                
+                // 重置状态
+                transWord.innerText = text;
+                transResult.innerText = '正在翻译...';
+                addVocabBtn.style.display = 'flex';
+                addSuccessMsg.style.display = 'none';
+                
+                try {
+                    const response = await fetch('/api/translate', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ word: text })
+                    });
+                    
+                    const data = await response.json();
+                    if (response.ok) {
+                        currentTranslation = data.translation;
+                        transResult.innerText = currentTranslation;
+                    } else {
+                        transResult.innerText = '翻译失败：' + (data.error || '未知错误');
+                        addVocabBtn.style.display = 'none';
+                    }
+                } catch (error) {
+                    transResult.innerText = '网络错误，请稍后再试';
+                    addVocabBtn.style.display = 'none';
+                }
+            }
+        });
+
+        // 加入生词本
+        addVocabBtn.addEventListener('click', async () => {
+            addVocabBtn.disabled = true;
+            addVocabBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中...';
+            
+            try {
+                const response = await fetch('/api/vocab/add', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        word: currentWord,
+                        translation: currentTranslation,
+                        context: currentContext,
+                        source: storyTitle
+                    })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    addVocabBtn.style.display = 'none';
+                    addSuccessMsg.style.display = 'block';
+                    if (data.message === '已在生词本中') {
+                        addSuccessMsg.innerHTML = '<i class="fa-solid fa-info-circle"></i> 已在生词本中';
+                    }
+                } else {
+                    alert('保存失败：' + data.error);
+                }
+            } catch (error) {
+                alert('网络错误，保存失败');
+            } finally {
+                addVocabBtn.disabled = false;
+                addVocabBtn.innerHTML = '<i class="fa-solid fa-plus"></i> 加入生词本';
+            }
+        });
+    }
+</script>
+{% endblock %}
