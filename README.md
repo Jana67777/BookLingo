@@ -15,12 +15,19 @@
 ### 部署到 Vercel (当前配置已支持)
 由于 Vercel 是 Serverless（无服务器）环境，代码目录是只读的，默认使用 SQLite 时数据会被写入到临时的 `/tmp` 目录。**请注意：在 `/tmp` 中的数据会在实例销毁时丢失，且多实例间数据不共享。**
 
-**推荐做法：使用外部云数据库（如 Vercel Postgres 或 Supabase）**
-1. 注册并登录 [Vercel](https://vercel.com/)。
-2. 将 `web_app` 文件夹上传到你的 GitHub 仓库。
-3. 在 Vercel 面板中导入该 GitHub 仓库进行部署。
-4. 如果你要使用持久化数据库，请在 Vercel 中添加 Postgres 附加组件，或使用 Supabase 获得一个 PostgreSQL 连接字符串，然后将其添加为 Vercel 的环境变量 `SQLALCHEMY_DATABASE_URI`。
-5. （可选）如果你只是为了体验，目前代码已适配了 Vercel 的临时目录，可以直接部署，但注册的用户和生词本数据可能会丢失。
+**推荐做法：连接 Supabase 云数据库 (免费且持久)**
+1. 注册并登录 [Supabase](https://supabase.com/)。
+2. 点击 "New Project" 创建一个新项目，设置好数据库密码（请务必记住）。
+3. 等待项目创建完成后，进入 `Project Settings` -> `Database`。
+4. 找到 **Connection string** 部分，选择 `URI` 标签页，复制那段以 `postgresql://` 开头的链接。
+   - 注意：要把链接中的 `[YOUR-PASSWORD]` 替换为你刚才设置的真实密码。
+5. 回到 [Vercel 面板](https://vercel.com/) 你的项目页面。
+6. 进入 `Settings` -> `Environment Variables`。
+7. 添加一个新的环境变量：
+   - Key 填写：`SQLALCHEMY_DATABASE_URI`
+   - Value 填写：刚才从 Supabase 复制并替换好密码的连接字符串。
+8. 点击保存，然后去 `Deployments` 页面点击 `Redeploy` 重新部署一次。
+9. 这样你的账号和生词本数据就会永久保存在 Supabase 中了！
 
 ### 方法 2：部署到 Render (适合使用 SQLite)
 1. 将 `web_app` 文件夹内的代码推送到你的 GitHub 仓库。

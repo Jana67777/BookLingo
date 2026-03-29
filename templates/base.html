@@ -3,28 +3,93 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}安徒生童话在线阅读器{% endblock %}</title>
+    <title>{% block title %}BookLingo 阅读器{% endblock %}</title>
     <!-- 使用 Tailwind CSS 进行多端适配 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- 引入高级字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.45);
+            --glass-border: rgba(255, 255, 255, 0.6);
+            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+        }
+        
+        body {
+            font-family: 'Nunito', system-ui, sans-serif;
+            background: linear-gradient(135deg, #e0f2fe 0%, #f5f3ff 100%);
+            min-height: 100vh;
+            color: #1f2937;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* 动态背景装饰 */
+        .bg-blob {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            z-index: -1;
+            opacity: 0.6;
+            animation: drift 20s infinite alternate ease-in-out;
+        }
+        .blob-1 { width: 500px; height: 500px; background: #fde68a; top: -100px; left: -100px; animation-delay: 0s; }
+        .blob-2 { width: 400px; height: 400px; background: #c7d2fe; bottom: 10%; right: -50px; animation-delay: -5s; }
+        .blob-3 { width: 600px; height: 600px; background: #fbcfe8; top: 40%; left: 30%; animation-delay: -10s; }
+
+        @keyframes drift {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(50px, 50px) scale(1.1); }
+        }
+
+        /* 毛玻璃通用类 */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--glass-shadow);
+            border-radius: 1.5rem;
+        }
+
+        .glass-nav {
+            background: rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .serif-text {
+            font-family: 'Noto Serif SC', 'Times New Roman', serif;
+        }
+    </style>
     {% block extra_head %}{% endblock %}
 </head>
-<body class="bg-gray-50 text-gray-800 font-sans">
+<body>
+    <!-- 背景装饰 -->
+    <div class="bg-blob blob-1"></div>
+    <div class="bg-blob blob-2"></div>
+    <div class="bg-blob blob-3"></div>
+
     <!-- 导航栏 -->
-    <nav class="bg-white shadow-md">
-        <div class="max-w-6xl mx-auto px-4">
+    <nav class="glass-nav shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center py-4">
-                <a href="{{ url_for('index') }}" class="text-xl font-bold text-blue-600 flex items-center gap-2">
-                    <i class="fa-solid fa-book-open"></i> 安徒生童话
+                <a href="{{ url_for('index') }}" class="text-2xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600 flex items-center gap-2">
+                    <i class="fa-solid fa-layer-group text-blue-600"></i> BookLingo
                 </a>
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-6">
                     {% if current_user.is_authenticated %}
-                        <span class="text-gray-600 hidden sm:inline">欢迎, {{ current_user.username }}</span>
-                        <a href="{{ url_for('vocab_book') }}" class="text-gray-600 hover:text-blue-600 transition"><i class="fa-solid fa-book"></i> 生词本</a>
-                        <a href="{{ url_for('logout') }}" class="text-gray-600 hover:text-red-600 transition"><i class="fa-solid fa-sign-out-alt"></i> 退出</a>
+                        <span class="text-gray-700 font-medium hidden sm:inline">Hi, {{ current_user.username }}</span>
+                        <a href="{{ url_for('vocab_book') }}" class="text-gray-600 hover:text-purple-600 font-medium transition flex items-center gap-1"><i class="fa-solid fa-book-bookmark"></i> 生词本</a>
+                        <a href="{{ url_for('logout') }}" class="text-gray-500 hover:text-red-500 font-medium transition"><i class="fa-solid fa-sign-out-alt"></i> 退出</a>
                     {% else %}
-                        <a href="{{ url_for('login') }}" class="text-gray-600 hover:text-blue-600 transition">登录</a>
-                        <a href="{{ url_for('register') }}" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">注册</a>
+                        <a href="{{ url_for('login') }}" class="text-gray-600 font-medium hover:text-blue-600 transition">登录</a>
+                        <a href="{{ url_for('register') }}" class="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-5 py-2 rounded-full font-medium hover:shadow-lg hover:scale-105 transition-all duration-200">注册</a>
                     {% endif %}
                 </div>
             </div>
@@ -32,12 +97,13 @@
     </nav>
 
     <!-- 闪存消息 -->
-    <div class="max-w-6xl mx-auto px-4 mt-4">
+    <div class="max-w-7xl mx-auto px-4 mt-6 z-40 relative">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="p-4 mb-4 rounded-lg {% if category == 'success' %}bg-green-100 text-green-700{% else %}bg-red-100 text-red-700{% endif %}">
-                        {{ message }}
+                    <div class="glass-panel p-4 mb-4 flex items-center gap-3 {% if category == 'success' %}text-green-700 border-green-200 bg-green-50/50{% else %}text-red-700 border-red-200 bg-red-50/50{% endif %}">
+                        <i class="fa-solid {% if category == 'success' %}fa-check-circle{% else %}fa-circle-exclamation{% endif %} text-lg"></i>
+                        <span class="font-medium">{{ message }}</span>
                     </div>
                 {% endfor %}
             {% endif %}
@@ -45,7 +111,7 @@
     </div>
 
     <!-- 主要内容区 -->
-    <main class="max-w-6xl mx-auto px-4 py-6">
+    <main class="max-w-7xl mx-auto px-4 py-8 relative z-10">
         {% block content %}{% endblock %}
     </main>
 

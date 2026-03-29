@@ -12,9 +12,13 @@ app.config['SECRET_KEY'] = 'andersen_secret_key_12345'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 # Vercel 部署环境适配：Vercel 的根目录是只读的，SQLite 需要写在 /tmp 目录下，或者使用 PostgreSQL
-if os.environ.get('SQLALCHEMY_DATABASE_URI'):
-    # 如果用户在 Vercel 配置了外部数据库（如 Postgres），优先使用
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI').replace("postgres://", "postgresql://", 1)
+if os.environ.get('SQLALCHEMY_DATABASE_URI') or os.environ.get('DATABASE_URL'):
+    # 如果用户在 Vercel 或环境变量中配置了外部数据库（如 Supabase Postgres），优先使用
+    # SQLAlchemy 要求 postgresql:// 前缀，而有些提供商给的是 postgres://
+    db_uri = os.environ.get('SQLALCHEMY_DATABASE_URI') or os.environ.get('DATABASE_URL')
+    if db_uri.startswith("postgres://"):
+        db_uri = db_uri.replace("postgres://", "postgresql://", 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 elif os.environ.get('VERCEL_ENV') or os.environ.get('VERCEL') or '/var/task' in os.path.abspath(__file__):
     # 注意：Vercel 是 Serverless 环境，/tmp 目录下的数据在实例销毁时会丢失。
     # 推荐后续替换为 Vercel Postgres 等云数据库
@@ -59,7 +63,7 @@ with app.app_context():
 # 考虑到纯展示和简化，这里暂用全局变量（每次请求可能丢失状态），但前端可以通过上传重置它。
 GLOBAL_TEXT = ""
 GLOBAL_PAGES = []
-GLOBAL_BOOK_TITLE = "安徒生童话"
+GLOBAL_BOOK_TITLE = "BookLingo 默认读物"
 PAGE_SIZE = 2000
 
 def paginate_text(text: str, page_size: int):
@@ -177,7 +181,7 @@ def add_vocab():
     word = data.get('word')
     translation = data.get('translation')
     context = data.get('context')
-    source = data.get('source', '安徒生童话')
+    source = data.get('source', 'BookLingo')
     
     if not word or not translation:
         return jsonify({'error': 'Missing word or translation'}), 400
