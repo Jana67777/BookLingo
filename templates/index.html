@@ -493,10 +493,42 @@
 
     let lastPointerClient = null;
     let lastPointerAt = 0;
-    storyContainer.addEventListener('pointerup', (e) => {
+    document.addEventListener('pointerup', (e) => {
         lastPointerClient = { x: e.clientX, y: e.clientY };
         lastPointerAt = Date.now();
-    });
+    }, { capture: true });
+
+    function pickClosestRect(rects, point) {
+        if (!rects || rects.length === 0 || !point) return null;
+        let best = rects[0];
+        let bestD2 = Infinity;
+        rects.forEach((r) => {
+            const cx = r.left + (r.width / 2);
+            const cy = r.top + (r.height / 2);
+            const dx = cx - point.x;
+            const dy = cy - point.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                best = r;
+            }
+        });
+        return best;
+    }
+
+    function placeInOffsetParent(el, pageLeft, pageTop) {
+        const op = el.offsetParent;
+        if (!op) {
+            el.style.left = `${pageLeft}px`;
+            el.style.top = `${pageTop}px`;
+            return;
+        }
+        const r = op.getBoundingClientRect();
+        const ox = r.left + window.scrollX;
+        const oy = r.top + window.scrollY;
+        el.style.left = `${pageLeft - ox}px`;
+        el.style.top = `${pageTop - oy}px`;
+    }
 
     function loadLocalHighlights(bookTitle, pageNum) {
         try {
@@ -526,14 +558,16 @@
             selectionToolbar.style.display = 'flex';
 
             const usePointer = lastPointerClient && (Date.now() - lastPointerAt) < 1200;
-            const rect = usePointer ? null : range.getBoundingClientRect();
+            const rects = Array.from(range.getClientRects());
+            const baseRect = rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
+            const rect = usePointer ? (pickClosestRect(rects, lastPointerClient) || baseRect) : baseRect;
             let leftPos = 0;
             let topPos = 0;
 
             if (usePointer) {
                 leftPos = lastPointerClient.x + window.scrollX - (selectionToolbar.offsetWidth / 2);
-                topPos = lastPointerClient.y + window.scrollY - selectionToolbar.offsetHeight - 14;
-                if (topPos < window.scrollY + 10) topPos = lastPointerClient.y + window.scrollY + 14;
+                topPos = lastPointerClient.y + window.scrollY - selectionToolbar.offsetHeight - 6;
+                if (topPos < window.scrollY + 6) topPos = lastPointerClient.y + window.scrollY + 6;
             } else {
                 leftPos = rect.left + window.scrollX + (rect.width / 2) - (selectionToolbar.offsetWidth / 2);
                 topPos = rect.top + window.scrollY - selectionToolbar.offsetHeight - 10;
@@ -546,8 +580,7 @@
                 leftPos = window.scrollX + window.innerWidth - selectionToolbar.offsetWidth - 10;
             }
             
-            selectionToolbar.style.left = `${leftPos}px`;
-            selectionToolbar.style.top = `${topPos}px`;
+            placeInOffsetParent(selectionToolbar, leftPos, topPos);
             
             requestAnimationFrame(() => {
                 selectionToolbar.style.opacity = '1';
@@ -608,20 +641,25 @@
         
         // 确保不会溢出屏幕右侧
         const popoverWidth = tooltip.offsetWidth || 320;
-        let leftPos = rect.left + window.scrollX + (rect.width / 2) - (popoverWidth / 2);
+        const popoverHeight = tooltip.offsetHeight || 180;
+        const usePointer = lastPointerClient && (Date.now() - lastPointerAt) < 1500;
+        let leftPos = usePointer
+            ? (lastPointerClient.x + window.scrollX - (popoverWidth / 2))
+            : (rect.left + window.scrollX + (rect.width / 2) - (popoverWidth / 2));
         if (leftPos < window.scrollX + 10) leftPos = window.scrollX + 10;
         if (leftPos + popoverWidth > window.scrollX + window.innerWidth - 10) {
             leftPos = window.scrollX + window.innerWidth - popoverWidth - 10;
         }
-        
-        tooltip.style.left = `${leftPos}px`;
-        const popoverHeight = tooltip.offsetHeight || 180;
-        let topPos = rect.bottom + window.scrollY + 10;
+        let topPos = usePointer
+            ? (lastPointerClient.y + window.scrollY - popoverHeight - 6)
+            : (rect.bottom + window.scrollY + 10);
         if (topPos + popoverHeight > window.scrollY + window.innerHeight - 10) {
-            topPos = rect.top + window.scrollY - popoverHeight - 10;
+            topPos = usePointer
+                ? (lastPointerClient.y + window.scrollY + 6)
+                : (rect.top + window.scrollY - popoverHeight - 10);
         }
         if (topPos < window.scrollY + 10) topPos = window.scrollY + 10;
-        tooltip.style.top = `${topPos}px`;
+        placeInOffsetParent(tooltip, leftPos, topPos);
         
         // 触发动画
         requestAnimationFrame(() => {
