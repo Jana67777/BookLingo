@@ -5,16 +5,26 @@
 {% block content %}
 <div class="bg-white rounded-xl shadow-sm p-6 md:p-10">
     <div class="flex justify-between items-center mb-8">
-        <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-book text-blue-600"></i> 我的生词本</h2>
-        <span class="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">共 {{ vocabs|length }} 个单词</span>
+        <h2 class="text-2xl font-bold text-gray-800"><i class="fa-solid fa-book-bookmark text-blue-600"></i> 我的生词本</h2>
+        <div class="flex items-center gap-3">
+            <a href="{{ url_for('index') }}" class="bg-gray-900 text-white hover:bg-gray-800 transition px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2">
+                <i class="fa-solid fa-house"></i>
+                <span>返回阅读</span>
+            </a>
+            <span class="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">共 {{ vocabs|length }} 个单词</span>
+        </div>
     </div>
 
     {% if vocabs %}
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {% for vocab in vocabs %}
-        <div class="border border-gray-200 rounded-lg p-5 hover:shadow-md transition bg-gray-50 hover:bg-white">
+        <div class="border border-gray-200 rounded-lg p-5 hover:shadow-md transition bg-gray-50 hover:bg-white relative" data-vocab-id="{{ vocab.id }}">
             <div class="flex justify-between items-start mb-3">
                 <h3 class="text-xl font-bold text-blue-600">{{ vocab.word }}</h3>
+                <button type="button" class="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition px-3 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2" data-action="delete-vocab">
+                    <i class="fa-solid fa-trash"></i>
+                    <span>删除</span>
+                </button>
             </div>
             <p class="text-gray-800 font-medium mb-4">{{ vocab.translation }}</p>
             
@@ -43,4 +53,25 @@
     </div>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll('[data-action="delete-vocab"]').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            const card = e.currentTarget.closest('[data-vocab-id]');
+            const vocabId = card?.getAttribute('data-vocab-id');
+            if (!vocabId) return;
+            if (!confirm('确定要删除这个单词吗？')) return;
+            try {
+                const r = await fetch(`/api/vocab/${vocabId}`, { method: 'DELETE' });
+                const data = await r.json().catch(() => ({}));
+                if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+                card.remove();
+            } catch (err) {
+                alert('删除失败：' + err.message);
+            }
+        });
+    });
+</script>
 {% endblock %}

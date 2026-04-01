@@ -8,15 +8,25 @@
         <h2 class="text-3xl font-black text-gray-800 flex items-center gap-3">
             <i class="fa-solid fa-pen-nib text-purple-600"></i> 我的笔记本
         </h2>
-        <span class="bg-purple-100 text-purple-800 text-sm font-bold px-4 py-1.5 rounded-full shadow-sm">共 {{ notes|length }} 条感悟</span>
+        <div class="flex items-center gap-3">
+            <a href="{{ url_for('index') }}" class="bg-gray-900 text-white hover:bg-gray-800 transition px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2">
+                <i class="fa-solid fa-house"></i>
+                <span>返回阅读</span>
+            </a>
+            <span class="bg-purple-100 text-purple-800 text-sm font-bold px-4 py-1.5 rounded-full shadow-sm">共 {{ notes|length }} 条感悟</span>
+        </div>
     </div>
 
     {% if notes %}
     <div class="space-y-8 max-w-4xl mx-auto">
         {% for note, highlight, book in notes %}
-        <div class="bg-white/60 backdrop-blur-sm border border-white/80 rounded-2xl p-6 hover:shadow-lg transition-all duration-300 relative overflow-hidden group">
+        <div class="bg-white/60 backdrop-blur-sm border border-white/80 rounded-2xl p-6 hover:shadow-lg transition-all duration-300 relative overflow-hidden group" data-note-id="{{ note.id }}">
             <!-- 装饰侧边条 -->
             <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-purple-400 to-blue-400 opacity-80"></div>
+            <button type="button" class="absolute top-4 right-4 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition px-3 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2" data-action="delete-note">
+                <i class="fa-solid fa-trash"></i>
+                <span>删除</span>
+            </button>
             
             <div class="flex justify-between items-start mb-4 pl-4">
                 <div class="flex items-center gap-2 text-sm text-gray-500 font-medium">
@@ -25,8 +35,10 @@
                     <span class="px-2 text-gray-300">|</span>
                     <span>第 {{ highlight.page_num }} 页</span>
                 </div>
-                <div class="text-xs text-gray-400">
-                    {{ note.created_at.strftime('%Y-%m-%d %H:%M') }}
+                <div class="flex items-center gap-3 pr-28">
+                    <div class="text-xs text-gray-400">
+                        {{ note.created_at.strftime('%Y-%m-%d %H:%M') }}
+                    </div>
                 </div>
             </div>
             
@@ -34,7 +46,31 @@
                 <!-- 高亮的原文 -->
                 <div class="mb-4 text-gray-600 font-serif text-lg leading-relaxed relative">
                     <i class="fa-solid fa-quote-left absolute -left-3 -top-2 text-3xl text-gray-200 -z-10"></i>
-                    <span class="bg-{{ highlight.color.replace('bg-', '').replace('-200', '') }}-100 px-1 rounded">{{ highlight.text }}</span>
+                    {% set hc = highlight.color %}
+                    {% if hc and hc.startswith('#') %}
+                        {% set hcc = hc %}
+                    {% elif hc == 'black' %}
+                        {% set hcc = '#111827' %}
+                    {% elif hc == 'yellow' %}
+                        {% set hcc = '#fef08a' %}
+                    {% elif hc == 'blue' %}
+                        {% set hcc = '#bfdbfe' %}
+                    {% elif hc == 'purple' %}
+                        {% set hcc = '#e9d5ff' %}
+                    {% elif hc == 'green' %}
+                        {% set hcc = '#bbf7d0' %}
+                    {% elif hc == 'red' %}
+                        {% set hcc = '#fecaca' %}
+                    {% elif hc == 'pink' %}
+                        {% set hcc = '#fbcfe8' %}
+                    {% else %}
+                        {% set hcc = '#fef08a' %}
+                    {% endif %}
+                    {% if hcc == '#111827' %}
+                        <span style="text-decoration-line: underline; text-decoration-color: {{ hcc }}; text-decoration-thickness: 2px; text-underline-offset: 3px;">{{ highlight.text }}</span>
+                    {% else %}
+                        <span style="background-color: {{ hcc }}; border-radius: 3px; padding: 2px 0;">{{ highlight.text }}</span>
+                    {% endif %}
                 </div>
                 
                 <!-- 我的想法 -->
@@ -59,4 +95,25 @@
     </div>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll('[data-action="delete-note"]').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            const card = e.currentTarget.closest('[data-note-id]');
+            const noteId = card?.getAttribute('data-note-id');
+            if (!noteId) return;
+            if (!confirm('确定要删除这条笔记吗？')) return;
+            try {
+                const r = await fetch(`/api/note/${noteId}`, { method: 'DELETE' });
+                const data = await r.json().catch(() => ({}));
+                if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+                card.remove();
+            } catch (err) {
+                alert('删除失败：' + err.message);
+            }
+        });
+    });
+</script>
 {% endblock %}

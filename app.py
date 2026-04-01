@@ -244,7 +244,6 @@ def logout():
 # --- 核心业务路由 (Task 2 & Task 3) ---
 
 @app.route('/api/translate', methods=['POST'])
-@login_required
 def translate_word():
     data = request.get_json()
     word = data.get('word', '').strip()
@@ -367,7 +366,16 @@ def api_page():
         "content": pages[page-1] if pages else "", 
         "book_title": book.title,
         "book_id": book.id,
-        "highlights": [{"id": h.id, "text": h.text, "color": h.color} for h in highlights],
+        "highlights": [
+            {
+                "id": h.id,
+                "text": h.text,
+                "color": h.color,
+                "start_offset": h.start_offset,
+                "end_offset": h.end_offset,
+            }
+            for h in highlights
+        ],
         "notes": [{"id": n.id, "content": n.content, "highlight_id": n.highlight_id} for n in notes]
     })
 
@@ -422,6 +430,27 @@ def list_books():
     return jsonify({
         "books": [{"id": b.id, "title": b.title, "current_page": b.current_page, "total_pages": b.total_pages} for b in books]
     })
+
+# --- 删除 API ---
+@app.route('/api/vocab/<int:vocab_id>', methods=['DELETE'])
+@login_required
+def delete_vocab(vocab_id: int):
+    vocab = db.session.get(Vocab, vocab_id)
+    if not vocab or vocab.user_id != current_user.id:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(vocab)
+    db.session.commit()
+    return jsonify({"success": True})
+
+@app.route('/api/note/<int:note_id>', methods=['DELETE'])
+@login_required
+def delete_note(note_id: int):
+    note = db.session.get(Note, note_id)
+    if not note or note.user_id != current_user.id:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(note)
+    db.session.commit()
+    return jsonify({"success": True})
 
 # --- 高亮与笔记 API ---
 @app.route('/api/highlight', methods=['POST'])

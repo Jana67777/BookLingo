@@ -37,22 +37,18 @@
     .token { cursor: pointer; transition: all 0.2s ease; border-radius: 4px; padding: 0 2px; margin: 0 -2px; }
     .token:hover { background-color: rgba(139, 92, 246, 0.15); color: #6d28d9; }
     
-    /* 高亮划线样式 */
     .highlighted {
-        background-color: #fef08a; /* 默认黄色高亮 */
-        border-radius: 3px;
-        padding: 2px 0;
+        text-decoration-line: underline;
+        text-decoration-thickness: 2px;
+        text-underline-offset: 3px;
         cursor: pointer;
     }
-    .highlighted.color-blue { background-color: #bfdbfe; }
-    .highlighted.color-green { background-color: #bbf7d0; }
-    .highlighted.color-pink { background-color: #fbcfe8; }
     
     /* 划线工具栏弹窗 */
     #selection-toolbar {
         position: absolute;
         display: none;
-        background: rgba(31, 41, 55, 0.95);
+        background: rgba(31, 41, 55, 0.72);
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
         border-radius: 0.75rem;
@@ -79,9 +75,9 @@
     .toolbar-btn:hover { background-color: rgba(255, 255, 255, 0.2); }
     
     .color-picker {
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
+        width: 26px;
+        height: 18px;
+        border-radius: 6px;
         cursor: pointer;
         border: 2px solid transparent;
     }
@@ -205,16 +201,22 @@
             </div>
         </div>
 
-        <!-- 选中文本工具栏 (划线/笔记) -->
+        <!-- 选中文本工具栏 (划线/笔记/翻译) -->
         <div id="selection-toolbar">
+            <button id="btn-translate" class="toolbar-btn text-sm font-medium border-r border-gray-600 pr-3 mr-1" title="翻译">
+                <i class="fa-solid fa-language mr-1"></i> 翻译
+            </button>
             <div class="flex items-center gap-2 border-r border-gray-600 pr-2 mr-1">
-                <div class="color-picker active bg-yellow-200" data-color="yellow"></div>
-                <div class="color-picker bg-blue-200" data-color="blue"></div>
-                <div class="color-picker bg-green-200" data-color="green"></div>
-                <div class="color-picker bg-pink-200" data-color="pink"></div>
+                <div class="color-picker active bg-yellow-200" data-color="#fef08a"></div>
+                <div class="color-picker bg-blue-200" data-color="#bfdbfe"></div>
+                <div class="color-picker bg-purple-200" data-color="#e9d5ff"></div>
+                <div class="color-picker bg-red-200" data-color="#fecaca"></div>
             </div>
+            <button id="btn-mark" class="toolbar-btn text-sm font-medium" title="划重点">
+                <i class="fa-solid fa-highlighter mr-1"></i> 重点
+            </button>
             <button id="btn-highlight" class="toolbar-btn text-sm font-medium" title="划线">
-                <i class="fa-solid fa-highlighter mr-1"></i> 划线
+                <i class="fa-solid fa-underline mr-1"></i> 划线
             </button>
             <button id="btn-note" class="toolbar-btn text-sm font-medium" title="写想法">
                 <i class="fa-solid fa-pen-to-square mr-1"></i> 想法
@@ -346,6 +348,9 @@
             if (data.highlights) {
                 applyHighlights(data.highlights);
             }
+            if (!isAuthenticated || !currentBookId) {
+                applyHighlights(loadLocalHighlights(currentBookTitle, currentPage));
+            }
             
             // 更新UI状态
             document.getElementById('pageInfo').textContent = `${currentPage} / ${totalPages}`;
@@ -441,36 +446,105 @@
     let currentWord = '';
     let currentTranslation = '';
     let currentContext = '';
-    let longPressTimer = null;
-    let isLongPress = false;
     
     // 高亮相关状态
     let currentSelection = null;
-    let currentColor = 'yellow';
+    let currentColor = '#fef08a';
     const selectionToolbar = document.getElementById('selection-toolbar');
     const noteModal = document.getElementById('note-modal');
+    selectionToolbar.style.display = 'none';
+    let suppressSelectionChange = false;
+    let lastTooltipOpenAt = 0;
+    const highlightPalette = {
+        black: '#111827',
+        yellow: '#fef08a',
+        blue: '#bfdbfe',
+        purple: '#e9d5ff',
+        green: '#bbf7d0',
+        red: '#fecaca',
+        pink: '#fbcfe8'
+    };
     
-    // 监听文本选中事件 (模拟微信读书的划线)
-    document.addEventListener('selectionchange', () => {
+    function normalizeHighlightColor(c) {
+        if (!c) return 'yellow';
+        if (typeof c === 'string' && c.startsWith('#')) return c;
+        if (highlightPalette[c]) return c;
+        return 'yellow';
+    }
+    
+    function resolveHighlightColor(c) {
+        const v = normalizeHighlightColor(c);
+        if (typeof v === 'string' && v.startsWith('#')) return v;
+        return highlightPalette[v] || highlightPalette.yellow;
+    }
+
+    function decorateSpan(span, color) {
+        if (color === highlightPalette.black) {
+            span.style.textDecorationLine = 'underline';
+            span.style.textDecorationColor = color;
+            span.style.textDecorationThickness = '2px';
+            span.style.textUnderlineOffset = '3px';
+        } else {
+            span.style.backgroundColor = color;
+            span.style.borderRadius = '3px';
+            span.style.padding = '2px 0';
+        }
+    }
+
+    let lastPointerClient = null;
+    let lastPointerAt = 0;
+    storyContainer.addEventListener('pointerup', (e) => {
+        lastPointerClient = { x: e.clientX, y: e.clientY };
+        lastPointerAt = Date.now();
+    });
+
+    function loadLocalHighlights(bookTitle, pageNum) {
+        try {
+            const key = `booklingo:hl:${bookTitle || 'demo'}:${pageNum}`;
+            const raw = localStorage.getItem(key);
+            const list = raw ? JSON.parse(raw) : [];
+            return Array.isArray(list) ? list : [];
+        } catch {
+            return [];
+        }
+    }
+
+    function saveLocalHighlights(bookTitle, pageNum, list) {
+        try {
+            const key = `booklingo:hl:${bookTitle || 'demo'}:${pageNum}`;
+            localStorage.setItem(key, JSON.stringify(list));
+        } catch {}
+    }
+    
+    function syncToolbarFromSelection() {
+        if (suppressSelectionChange) return;
         const selection = window.getSelection();
         const text = selection.toString().trim();
         
-        if (text.length > 0 && storyContainer.contains(selection.anchorNode)) {
+        if (text.length > 0 && selection.anchorNode && storyContainer.contains(selection.anchorNode)) {
             const range = selection.getRangeAt(0);
-            const rect = range.getBoundingClientRect();
-            
-            // 显示高亮工具栏
             selectionToolbar.style.display = 'flex';
-            
-            // 计算位置
-            let leftPos = rect.left + window.scrollX + (rect.width / 2) - (selectionToolbar.offsetWidth / 2);
-            let topPos = rect.top + window.scrollY - selectionToolbar.offsetHeight - 10;
-            
-            // 边界检查
-            if (topPos < window.scrollY + 60) {
-                topPos = rect.bottom + window.scrollY + 10; // 如果上方空间不足，显示在下方
+
+            const usePointer = lastPointerClient && (Date.now() - lastPointerAt) < 1200;
+            const rect = usePointer ? null : range.getBoundingClientRect();
+            let leftPos = 0;
+            let topPos = 0;
+
+            if (usePointer) {
+                leftPos = lastPointerClient.x + window.scrollX - (selectionToolbar.offsetWidth / 2);
+                topPos = lastPointerClient.y + window.scrollY - selectionToolbar.offsetHeight - 14;
+                if (topPos < window.scrollY + 10) topPos = lastPointerClient.y + window.scrollY + 14;
+            } else {
+                leftPos = rect.left + window.scrollX + (rect.width / 2) - (selectionToolbar.offsetWidth / 2);
+                topPos = rect.top + window.scrollY - selectionToolbar.offsetHeight - 10;
+                if (topPos < window.scrollY + 60) {
+                    topPos = rect.bottom + window.scrollY + 10;
+                }
             }
             if (leftPos < 10) leftPos = 10;
+            if (leftPos + selectionToolbar.offsetWidth > window.scrollX + window.innerWidth - 10) {
+                leftPos = window.scrollX + window.innerWidth - selectionToolbar.offsetWidth - 10;
+            }
             
             selectionToolbar.style.left = `${leftPos}px`;
             selectionToolbar.style.top = `${topPos}px`;
@@ -480,17 +554,16 @@
                 selectionToolbar.style.transform = 'translateY(0)';
             });
             
-            currentSelection = { text, range: range.cloneRange() };
-            
-            // 如果选中了单个单词或短语，自动触发翻译（旧有逻辑的优化）
-            if (text.length < 50 && /^[a-zA-Z\s'-]+$/.test(text)) {
-                 // 不覆盖原有的翻译弹窗逻辑，但在有工具栏时稍微调整位置
-                 // （保持原有点击单词翻译的逻辑在 click 事件中处理）
-            }
+            currentSelection = { text, range: range.cloneRange(), anchorNode: selection.anchorNode };
         } else {
             hideSelectionToolbar();
         }
-    });
+    }
+    
+    // 监听文本选中事件 (模拟微信读书的划线)
+    document.addEventListener('selectionchange', syncToolbarFromSelection);
+    storyContainer.addEventListener('mouseup', () => setTimeout(syncToolbarFromSelection, 0));
+    storyContainer.addEventListener('touchend', () => setTimeout(syncToolbarFromSelection, 0), { passive: true });
     
     function hideSelectionToolbar() {
         selectionToolbar.style.opacity = '0';
@@ -498,34 +571,176 @@
         setTimeout(() => selectionToolbar.style.display = 'none', 200);
     }
     
+    // 翻译按钮点击事件
+    document.getElementById('btn-translate').addEventListener('pointerdown', (e) => {
+        e.preventDefault(); // 防止点击按钮时失去选区
+        e.stopPropagation();
+        if (!currentSelection) return;
+        
+        const text = currentSelection.text;
+        if (text.length > 100) {
+            alert("选中的文本过长，请选择单词或短语进行翻译。");
+            return;
+        }
+        
+        // 隐藏工具栏，显示翻译弹窗
+        hideSelectionToolbar();
+        
+        // 获取上下文和位置
+        let context = '';
+        const node = currentSelection.anchorNode;
+        if(node && node.parentElement && node.parentElement.tagName === 'P') {
+            context = node.parentElement.innerText;
+        } else if (node && node.parentElement && node.parentElement.parentElement && node.parentElement.parentElement.tagName === 'P') {
+            context = node.parentElement.parentElement.innerText;
+        }
+
+        currentWord = text;
+        currentContext = context;
+        
+        const rects = currentSelection.range.getClientRects();
+        const rect = rects.length ? rects[rects.length - 1] : currentSelection.range.getBoundingClientRect();
+        
+        tooltip.style.display = 'block';
+        tooltip.style.opacity = '0';
+        tooltip.style.transform = 'translateY(10px) scale(0.95)';
+        lastTooltipOpenAt = Date.now();
+        
+        // 确保不会溢出屏幕右侧
+        const popoverWidth = tooltip.offsetWidth || 320;
+        let leftPos = rect.left + window.scrollX + (rect.width / 2) - (popoverWidth / 2);
+        if (leftPos < window.scrollX + 10) leftPos = window.scrollX + 10;
+        if (leftPos + popoverWidth > window.scrollX + window.innerWidth - 10) {
+            leftPos = window.scrollX + window.innerWidth - popoverWidth - 10;
+        }
+        
+        tooltip.style.left = `${leftPos}px`;
+        const popoverHeight = tooltip.offsetHeight || 180;
+        let topPos = rect.bottom + window.scrollY + 10;
+        if (topPos + popoverHeight > window.scrollY + window.innerHeight - 10) {
+            topPos = rect.top + window.scrollY - popoverHeight - 10;
+        }
+        if (topPos < window.scrollY + 10) topPos = window.scrollY + 10;
+        tooltip.style.top = `${topPos}px`;
+        
+        // 触发动画
+        requestAnimationFrame(() => {
+            tooltip.style.opacity = '1';
+            tooltip.style.transform = 'translateY(0) scale(1)';
+        });
+        
+        // 重置状态
+        transWord.innerText = text;
+        transResult.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-purple-400 mr-2"></i>正在翻译...';
+        addVocabBtn.style.display = isAuthenticated ? 'flex' : 'none';
+        addSuccessMsg.style.display = 'none';
+        
+        fetch('/api/translate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ word: text })
+        }).then(res => res.json()).then(data => {
+            if (data.translation) {
+                currentTranslation = data.translation;
+                transResult.innerText = currentTranslation;
+            } else {
+                transResult.innerText = '翻译失败：' + (data.error || '未知错误');
+                addVocabBtn.style.display = 'none';
+            }
+        }).catch(err => {
+            transResult.innerText = '网络错误，请稍后再试';
+            addVocabBtn.style.display = 'none';
+        });
+    });
+
     // 颜色选择器
     document.querySelectorAll('.color-picker').forEach(picker => {
-        picker.addEventListener('mousedown', (e) => {
+        picker.addEventListener('pointerdown', (e) => {
             e.preventDefault(); // 防止失去选区
+            e.stopPropagation();
             document.querySelectorAll('.color-picker').forEach(p => p.classList.remove('active'));
             picker.classList.add('active');
             currentColor = picker.dataset.color;
         });
     });
     
-    // 执行高亮
-    document.getElementById('btn-highlight').addEventListener('mousedown', async (e) => {
+    document.getElementById('btn-mark').addEventListener('pointerdown', async (e) => {
         e.preventDefault();
-        if (!currentSelection || !isAuthenticated || !currentBookId) {
-            if (!isAuthenticated) alert("请先登录！");
-            if (!currentBookId) alert("请上传您的书籍。");
+        e.stopPropagation();
+        if (!currentSelection) return;
+        const selectionRange = currentSelection && currentSelection.range ? currentSelection.range.cloneRange() : null;
+        const offsets = selectionRange ? getOffsetsInContainer(storyContainer, selectionRange) : { start_offset: 0, end_offset: 0 };
+        if (offsets.end_offset <= offsets.start_offset) return;
+        const hl = {
+            id: Date.now(),
+            text: currentSelection.text,
+            color: currentColor,
+            start_offset: offsets.start_offset,
+            end_offset: offsets.end_offset
+        };
+        const domApplied = selectionRange ? highlightRangeInDom(selectionRange, hl) : false;
+        if (!domApplied) {
+            alert('暂不支持跨段落划线，请在同一段落内选择文本');
             return;
         }
         
-        await saveHighlight(currentSelection.text, currentColor, null);
+        if (isAuthenticated && currentBookId) {
+            await saveHighlight(currentSelection.text, currentColor, null);
+            window.getSelection().removeAllRanges();
+            hideSelectionToolbar();
+            loadPage(currentPage);
+            return;
+        }
+        
+        const list = loadLocalHighlights(currentBookTitle, currentPage);
+        list.push(hl);
+        saveLocalHighlights(currentBookTitle, currentPage, list);
         window.getSelection().removeAllRanges();
         hideSelectionToolbar();
-        loadPage(currentPage); // 重新加载以渲染高亮
+    });
+
+    document.getElementById('btn-highlight').addEventListener('pointerdown', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!currentSelection) return;
+        const selectionRange = currentSelection && currentSelection.range ? currentSelection.range.cloneRange() : null;
+        const offsets = selectionRange ? getOffsetsInContainer(storyContainer, selectionRange) : { start_offset: 0, end_offset: 0 };
+        if (offsets.end_offset <= offsets.start_offset) return;
+        const underlineColor = highlightPalette.black;
+        const hl = {
+            id: Date.now(),
+            text: currentSelection.text,
+            color: underlineColor,
+            start_offset: offsets.start_offset,
+            end_offset: offsets.end_offset
+        };
+        const domApplied = selectionRange ? highlightRangeInDom(selectionRange, hl) : false;
+        if (!domApplied) {
+            alert('暂不支持跨段落划线，请在同一段落内选择文本');
+            return;
+        }
+
+        if (isAuthenticated && currentBookId) {
+            await saveHighlight(currentSelection.text, underlineColor, null);
+            window.getSelection().removeAllRanges();
+            hideSelectionToolbar();
+            loadPage(currentPage);
+            return;
+        }
+
+        const list = loadLocalHighlights(currentBookTitle, currentPage);
+        list.push(hl);
+        saveLocalHighlights(currentBookTitle, currentPage, list);
+        window.getSelection().removeAllRanges();
+        hideSelectionToolbar();
     });
     
     // 写笔记
-    document.getElementById('btn-note').addEventListener('mousedown', (e) => {
+    document.getElementById('btn-note').addEventListener('pointerdown', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         if (!currentSelection || !isAuthenticated || !currentBookId) {
             if (!isAuthenticated) alert("请先登录！");
             if (!currentBookId) alert("默认演示文本不支持笔记，请上传您的专属书籍。");
@@ -565,9 +780,9 @@
     }
     
     async function saveHighlight(text, color, noteContent) {
-        // 简化的偏移量计算（由于 DOM 结构复杂，这里简化为纯文本匹配，真实场景可使用 Range 的 startOffset）
         try {
-            await fetch('/api/highlight', {
+            const offsets = currentSelection && currentSelection.range ? getOffsetsInContainer(storyContainer, currentSelection.range) : { start_offset: 0, end_offset: 0 };
+            const resp = await fetch('/api/highlight', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -575,149 +790,155 @@
                     page_num: currentPage,
                     color: color,
                     book_id: currentBookId,
-                    note_content: noteContent
+                    note_content: noteContent,
+                    start_offset: offsets.start_offset,
+                    end_offset: offsets.end_offset
                 })
             });
+            if (!resp.ok) {
+                const t = await resp.text();
+                throw new Error(t || `HTTP ${resp.status}`);
+            }
         } catch (e) {
             console.error("Save highlight failed", e);
+            alert('划线/笔记保存失败，请刷新后重试');
         }
     }
     
     function applyHighlights(highlights) {
-        // 简单的高亮渲染逻辑：遍历段落，将匹配的文本替换为带样式的 span
-        // 这是一个基础实现，对于跨标签的高亮处理较复杂，这里仅作单节点内的文本匹配
         if (!highlights || highlights.length === 0) return;
-        
-        const paragraphs = storyContainer.querySelectorAll('p:not(.title):not(.catalog)');
-        
         highlights.forEach(hl => {
-            const colorClass = `color-${hl.color}`; // 映射颜色到自定义 class
-            paragraphs.forEach(p => {
-                // 简单的字符串替换实现高亮显示（避免破坏 token 结构，在真实复杂场景应使用 Range 还原）
-                // 因为文本可能被 <span> 拆分，简单的 innerHTML 替换在这里仅作为基础示例
-                if (p.textContent.includes(hl.text)) {
-                    // 标记出该段落有高亮，这里为了不破坏翻译功能，我们在段落旁边加个笔记图标
-                    p.style.position = 'relative';
-                    const icon = document.createElement('i');
-                    icon.className = `fa-solid fa-highlighter absolute -left-6 top-1 text-${hl.color}-400 text-sm opacity-50`;
-                    icon.title = hl.text;
-                    p.appendChild(icon);
-                    p.style.backgroundColor = hl.color === 'yellow' ? 'rgba(254, 240, 138, 0.3)' : 
-                                              hl.color === 'blue' ? 'rgba(191, 219, 254, 0.3)' :
-                                              hl.color === 'green' ? 'rgba(187, 247, 208, 0.3)' : 'rgba(251, 207, 232, 0.3)';
-                    p.style.borderRadius = '4px';
+            const start = Number.isFinite(hl.start_offset) ? hl.start_offset : parseInt(hl.start_offset || '0', 10);
+            const end = Number.isFinite(hl.end_offset) ? hl.end_offset : parseInt(hl.end_offset || '0', 10);
+            if (start >= 0 && end > start) {
+                applyHighlightByOffsets(storyContainer, start, end, hl);
+            } else if (hl.text) {
+                const idx = storyContainer.textContent.indexOf(hl.text);
+                if (idx >= 0) {
+                    applyHighlightByOffsets(storyContainer, idx, idx + hl.text.length, hl);
                 }
-            });
+            }
         });
     }
 
     // 关闭翻译弹出层
-    closeTooltipBtn.addEventListener('click', () => {
+    closeTooltipBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         tooltip.style.opacity = '0';
         tooltip.style.transform = 'translateY(10px) scale(0.95)';
         setTimeout(() => tooltip.style.display = 'none', 200);
     });
 
     // 点击其他地方关闭
-    document.addEventListener('mousedown', (e) => {
-        if (!tooltip.contains(e.target) && !storyContainer.contains(e.target)) {
+    document.addEventListener('pointerdown', (e) => {
+        if (Date.now() - lastTooltipOpenAt < 250) return;
+        if (!tooltip.contains(e.target) && !selectionToolbar.contains(e.target)) {
             tooltip.style.opacity = '0';
             tooltip.style.transform = 'translateY(10px) scale(0.95)';
             setTimeout(() => tooltip.style.display = 'none', 200);
         }
     });
 
-    function handleTranslateRequest(text, spanElement, clientX, clientY) {
-        // 获取出处句子
-        let context = '';
-        if(spanElement.parentElement && spanElement.parentElement.tagName === 'P') {
-            context = spanElement.parentElement.innerText;
-        }
+    // 点击/轻触单词：自动选中该单词，随后通过工具栏点“翻译”
+    storyContainer.addEventListener('click', (e) => {
+        const el = e.target;
+        if (!el || !el.classList || !el.classList.contains('token')) return;
+        lastPointerClient = { x: e.clientX, y: e.clientY };
+        lastPointerAt = Date.now();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        setTimeout(syncToolbarFromSelection, 0);
+    });
 
-        currentWord = text;
-        currentContext = context;
+    selectionToolbar.addEventListener('pointerdown', (e) => {
+        suppressSelectionChange = true;
+        e.stopPropagation();
+        setTimeout(() => {
+            suppressSelectionChange = false;
+        }, 0);
+    });
+    
+    tooltip.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+    });
+
+    function getOffsetsInContainer(container, range) {
+        const preStart = document.createRange();
+        preStart.setStart(container, 0);
+        preStart.setEnd(range.startContainer, range.startOffset);
+        const start = (preStart.cloneContents().textContent || '').length;
         
-        // 显示 Tooltip
-        tooltip.style.display = 'block';
+        const preEnd = document.createRange();
+        preEnd.setStart(container, 0);
+        preEnd.setEnd(range.endContainer, range.endOffset);
+        const end = (preEnd.cloneContents().textContent || '').length;
         
-        // 确保不会溢出屏幕右侧
-        const popoverWidth = 320;
-        let leftPos = clientX + window.scrollX;
-        if (leftPos + popoverWidth > window.innerWidth) {
-            leftPos = window.innerWidth - popoverWidth - 20;
+        return { start_offset: start, end_offset: end };
+    }
+    
+    function applyHighlightByOffsets(container, start, end, hl) {
+        const color = resolveHighlightColor(hl.color);
+        const nodes = [];
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+        let node;
+        let pos = 0;
+        
+        while ((node = walker.nextNode())) {
+            const parent = node.parentElement;
+            if (!parent) continue;
+            if (parent.closest('[data-hl]')) {
+                pos += node.nodeValue.length;
+                continue;
+            }
+            const len = node.nodeValue.length;
+            nodes.push({ node, start: pos, end: pos + len });
+            pos += len;
         }
         
-        tooltip.style.left = `${leftPos}px`;
-        tooltip.style.top = `${clientY + window.scrollY + 10}px`;
-        
-        // 触发动画
-        requestAnimationFrame(() => {
-            tooltip.style.opacity = '1';
-            tooltip.style.transform = 'translateY(0) scale(1)';
-        });
-        
-        // 重置状态
-        transWord.innerText = text;
-        transResult.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-purple-400 mr-2"></i>正在翻译...';
-        addVocabBtn.style.display = isAuthenticated ? 'flex' : 'none';
-        addSuccessMsg.style.display = 'none';
-        
-        fetch('/api/translate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ word: text })
-        }).then(res => res.json()).then(data => {
-            if (data.translation) {
-                currentTranslation = data.translation;
-                transResult.innerText = currentTranslation;
-            } else {
-                transResult.innerText = '翻译失败：' + (data.error || '未知错误');
-                addVocabBtn.style.display = 'none';
-            }
-        }).catch(err => {
-            transResult.innerText = '网络错误，请稍后再试';
-            addVocabBtn.style.display = 'none';
+        nodes.forEach(({ node: tnode, start: ns, end: ne }) => {
+            if (ne <= start || ns >= end) return;
+            const s = Math.max(0, start - ns);
+            const e = Math.min(tnode.nodeValue.length, end - ns);
+            if (e <= s) return;
+            
+            const before = tnode.nodeValue.slice(0, s);
+            const middle = tnode.nodeValue.slice(s, e);
+            const after = tnode.nodeValue.slice(e);
+            
+            const frag = document.createDocumentFragment();
+            if (before) frag.appendChild(document.createTextNode(before));
+            
+            const span = document.createElement('span');
+            span.setAttribute('data-hl', String(hl.id || '1'));
+            decorateSpan(span, color);
+            span.textContent = middle;
+            frag.appendChild(span);
+            
+            if (after) frag.appendChild(document.createTextNode(after));
+            tnode.parentNode.replaceChild(frag, tnode);
         });
     }
 
-    // 电脑端右键翻译
-    storyContainer.addEventListener('contextmenu', (e) => {
-        const span = e.target;
-        if (span && span.classList && span.classList.contains('token')) {
-            e.preventDefault(); // 阻止默认右键菜单
-            const text = span.textContent.trim();
-            handleTranslateRequest(text, span, e.clientX, e.clientY);
-        }
-    });
+    function isSameParagraph(range) {
+        const startP = range.startContainer?.parentElement?.closest?.('p');
+        const endP = range.endContainer?.parentElement?.closest?.('p');
+        return !!startP && startP === endP;
+    }
 
-    // 手机端长按翻译
-    storyContainer.addEventListener('touchstart', (e) => {
-        const span = e.target;
-        if (span && span.classList && span.classList.contains('token')) {
-            isLongPress = false;
-            const touch = e.touches[0];
-            longPressTimer = setTimeout(() => {
-                isLongPress = true;
-                const text = span.textContent.trim();
-                handleTranslateRequest(text, span, touch.clientX, touch.clientY);
-                // 震动反馈(如果设备支持)
-                if(navigator.vibrate) navigator.vibrate(50);
-            }, 600); // 600ms算作长按
-        }
-    }, {passive: true});
-
-    storyContainer.addEventListener('touchend', () => {
-        if (longPressTimer) clearTimeout(longPressTimer);
-    });
-    
-    storyContainer.addEventListener('touchmove', () => {
-        if (longPressTimer) clearTimeout(longPressTimer);
-    }, {passive: true});
-
-    // 防止手机端长按选中文字后触发原生菜单干扰翻译，如果需要可选则保留
-    // 但原生的 selectionchange 依然会触发用于划线
+    function highlightRangeInDom(range, hl) {
+        if (!isSameParagraph(range)) return false;
+        const span = document.createElement('span');
+        span.setAttribute('data-hl', String(hl.id || Date.now()));
+        const color = resolveHighlightColor(hl.color);
+        decorateSpan(span, color);
+        const frag = range.extractContents();
+        span.appendChild(frag);
+        range.insertNode(span);
+        return true;
+    }
 
     if (isAuthenticated) {
         // 加入生词本
