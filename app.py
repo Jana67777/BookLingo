@@ -7,6 +7,7 @@ import requests
 import os
 import re
 import tempfile
+from sqlalchemy.pool import NullPool
 from bs4 import BeautifulSoup
 import fitz  # PyMuPDF
 import docx
@@ -18,15 +19,21 @@ app.config['SECRET_KEY'] = 'andersen_secret_key_12345'
 # 允许上传文件大小限制为 100MB (PDF/EPUB等文件可能较大)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 
+is_vercel = bool(os.environ.get('VERCEL') or os.environ.get('VERCEL_ENV'))
+external_db_uri = os.environ.get('SQLALCHEMY_DATABASE_URI') or os.environ.get('DATABASE_URL')
+has_external_db = bool(external_db_uri)
+
 # Vercel 部署环境适配：Vercel 的根目录是只读的，SQLite 需要写在 /tmp 目录下，或者使用 PostgreSQL
-if os.environ.get('SQLALCHEMY_DATABASE_URI') or os.environ.get('DATABASE_URL'):
+if has_external_db:
     # 如果用户在 Vercel 或环境变量中配置了外部数据库（如 Supabase Postgres），优先使用
     # SQLAlchemy 要求 postgresql:// 前缀，而有些提供商给的是 postgres://
-    db_uri = os.environ.get('SQLALCHEMY_DATABASE_URI') or os.environ.get('DATABASE_URL')
+    db_uri = external_db_uri
     if db_uri.startswith("postgres://"):
         db_uri = db_uri.replace("postgres://", "postgresql://", 1)
+    if ("supabase.co" in db_uri) and ("sslmode=" not in db_uri):
+        db_uri = f"{db_uri}&sslmode=require" if "?" in db_uri else f"{db_uri}?sslmode=require"
     app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
-elif os.environ.get('VERCEL_ENV') or os.environ.get('VERCEL') or '/var/task' in os.path.abspath(__file__):
+elif is_vercel or '/var/task' in os.path.abspath(__file__):
     # 注意：Vercel 是 Serverless 环境，/tmp 目录下的数据在实例销毁时会丢失。
     # 推荐后续替换为 Vercel Postgres 等云数据库
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/andersen.db'
@@ -35,11 +42,23 @@ else:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'andersen.db')
     
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+if is_vercel:
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        "poolclass": NullPool,
+        "pool_pre_ping": True,
+    }
 
 db = SQLAlchemy(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+@app.context_processor
+def inject_deploy_flags():
+    return {
+        "IS_VERCEL": is_vercel,
+        "HAS_EXTERNAL_DB": has_external_db,
+    }
 
 # --- 数据库模型 (Task 3) ---
 
@@ -383,6 +402,8 @@ def api_page():
 def upload_file():
     if not current_user.is_authenticated:
         return jsonify({"error": "请先登录后再上传书籍"}), 401
+    if is_vercel and request.content_length and request.content_length > 4 * 1024 * 1024:
+        return jsonify({"error": "云端部署环境对上传大小有限制（通常约 4MB）。请上传更小的文件，或更换支持大文件上传的部署平台。"}), 413
         
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400

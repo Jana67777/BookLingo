@@ -193,6 +193,14 @@
             </p>
         </div>
         {% endif %}
+        {% if IS_VERCEL and not HAS_EXTERNAL_DB %}
+        <div class="bg-amber-50/80 backdrop-blur-sm border border-amber-200 rounded-xl p-4 mb-10 flex items-start gap-3 shadow-sm">
+            <i class="fa-solid fa-triangle-exclamation text-amber-600 mt-0.5 text-lg"></i>
+            <p class="text-sm text-amber-800 leading-relaxed">
+                当前为云端部署环境，但未配置外部数据库：账号/书籍/生词本/笔记可能会丢失或不稳定。建议配置 DATABASE_URL（Postgres）后再使用。
+            </p>
+        </div>
+        {% endif %}
 
         <div class="story-content serif-text mx-auto max-w-4xl" id="story-container">
             <div class="text-center py-32 text-gray-400 flex flex-col items-center">
@@ -263,6 +271,8 @@
 {% block scripts %}
 <script>
     const isAuthenticated = {% if current_user.is_authenticated %}true{% else %}false{% endif %};
+    const isVercel = {% if IS_VERCEL %}true{% else %}false{% endif %};
+    const hasExternalDb = {% if HAS_EXTERNAL_DB %}true{% else %}false{% endif %};
     const storyContainer = document.getElementById('story-container');
     const tooltip = document.getElementById('translation-tooltip');
     const transWord = document.getElementById('trans-word');
@@ -409,6 +419,11 @@
     document.getElementById('fileInput').addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        if (isVercel && file.size > 4 * 1024 * 1024) {
+            alert('云端部署环境对上传大小有限制（通常约 4MB），大文件会直接失败。建议上传较小的 .txt 或配置外部数据库/更换部署平台。');
+            e.target.value = '';
+            return;
+        }
         
         const formData = new FormData();
         formData.append('file', file);
