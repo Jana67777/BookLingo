@@ -7,12 +7,9 @@ import requests
 import os
 import re
 import tempfile
+from typing import Optional
 from sqlalchemy.pool import NullPool
-from bs4 import BeautifulSoup
-import fitz  # PyMuPDF
-import docx
-import ebooklib
-from ebooklib import epub
+from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'andersen_secret_key_12345'
@@ -58,7 +55,13 @@ def inject_deploy_flags():
     return {
         "IS_VERCEL": is_vercel,
         "HAS_EXTERNAL_DB": has_external_db,
+        "DB_INIT_OK": db_init_ok,
+        "DB_INIT_FAILED": db_init_failed,
     }
+
+@app.before_request
+def _ensure_db_before_request():
+    ensure_db_initialized()
 
 # --- 数据库模型 (Task 3) ---
 
@@ -112,9 +115,23 @@ class Vocab(db.Model):
 def load_user(user_id):
     return db.session.get(User, int(user_id))
 
-# 初始化数据库表
-with app.app_context():
-    db.create_all()
+db_init_ok = False
+db_init_failed = False
+
+def ensure_db_initialized():
+    global db_init_ok, db_init_failed
+    if db_init_ok:
+        return
+    if db_init_failed:
+        return
+    try:
+        with app.app_context():
+            db.create_all()
+        db_init_ok = True
+    except Exception:
+        db_init_failed = True
+
+ensure_db_initialized()
 
 # --- 阅读器核心逻辑 ---
 PAGE_SIZE = 2000
@@ -151,6 +168,58 @@ def paginate_text(text: str, page_size: int):
         i = safe_end
     return pages
 
+def _redact_db_uri(uri: Optional[str]):
+    if not uri:
+        return None
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        s = urlsplit(uri)
+        netloc = s.netloc
+        if "@" in netloc:
+            creds, hostpart = netloc.split("@", 1)
+            if ":" in creds:
+                user = creds.split(":", 1)[0]
+                netloc = f"{user}:***@{hostpart}"
+            else:
+                netloc = f"***@{hostpart}"
+        return urlunsplit((s.scheme, netloc, s.path, s.query, s.fragment))
+    except Exception:
+        return "***"
+
+@app.route("/healthz")
+def healthz():
+    uri = app.config.get("SQLALCHEMY_DATABASE_URI")
+    db_ping_ok = None
+    if has_external_db:
+        try:
+            with db.engine.connect() as conn:
+                conn.exec_driver_sql("select 1")
+            db_ping_ok = True
+        except Exception:
+            db_ping_ok = False
+    return jsonify({
+        "ok": True,
+        "is_vercel": is_vercel,
+        "has_external_db": has_external_db,
+        "db_init_ok": db_init_ok,
+        "db_init_failed": db_init_failed,
+        "db_ping_ok": db_ping_ok,
+        "db_uri": _redact_db_uri(uri),
+    })
+
+@app.errorhandler(Exception)
+def handle_any_exception(e):
+    if isinstance(e, HTTPException):
+        return e
+    if is_vercel:
+        return (
+            f"Internal Server Error: {type(e).__name__}. "
+            f"Please check Vercel Runtime Logs for the full traceback.",
+            500,
+            {"Content-Type": "text/plain; charset=utf-8"},
+        )
+    raise e
+
 def get_default_book_content():
     default_book_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Andersen's_fairy_tales.txt")
     if os.path.exists(default_book_path):
@@ -173,6 +242,12 @@ def extract_text_from_file(file, ext):
         return None
         
     elif ext == '.epub':
+        try:
+            import ebooklib
+            from ebooklib import epub
+            from bs4 import BeautifulSoup
+        except Exception as e:
+            raise RuntimeError("EPUB 解析依赖在当前部署环境不可用，请改为上传 .txt 文件") from e
         # 将文件保存到临时文件供 ebooklib 读取
         with tempfile.NamedTemporaryFile(delete=False, suffix='.epub') as tmp:
             file.save(tmp.name)
@@ -190,6 +265,10 @@ def extract_text_from_file(file, ext):
             os.remove(tmp_path)
             
     elif ext == '.pdf':
+        try:
+            import fitz
+        except Exception as e:
+            raise RuntimeError("PDF 解析依赖在当前部署环境不可用，请改为上传 .txt 文件") from e
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
             file.save(tmp.name)
             tmp_path = tmp.name
@@ -204,6 +283,10 @@ def extract_text_from_file(file, ext):
             os.remove(tmp_path)
             
     elif ext in ['.doc', '.docx']:
+        try:
+            import docx
+        except Exception as e:
+            raise RuntimeError("DOCX 解析依赖在当前部署环境不可用，请改为上传 .txt 文件") from e
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
             file.save(tmp.name)
             tmp_path = tmp.name

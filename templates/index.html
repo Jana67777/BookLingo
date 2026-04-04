@@ -201,6 +201,14 @@
             </p>
         </div>
         {% endif %}
+        {% if IS_VERCEL and HAS_EXTERNAL_DB and DB_INIT_FAILED %}
+        <div class="bg-red-50/80 backdrop-blur-sm border border-red-200 rounded-xl p-4 mb-10 flex items-start gap-3 shadow-sm">
+            <i class="fa-solid fa-circle-exclamation text-red-600 mt-0.5 text-lg"></i>
+            <p class="text-sm text-red-800 leading-relaxed">
+                已配置外部数据库，但服务端初始化表失败：请检查 Vercel 的 DATABASE_URL 是否为 Supabase 的 Postgres 连接串，并开启 sslmode=require。
+            </p>
+        </div>
+        {% endif %}
 
         <div class="story-content serif-text mx-auto max-w-4xl" id="story-container">
             <div class="text-center py-32 text-gray-400 flex flex-col items-center">
