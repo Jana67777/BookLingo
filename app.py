@@ -7,6 +7,7 @@ import requests
 import os
 import re
 import tempfile
+import time
 from typing import Optional
 from sqlalchemy.pool import NullPool
 from werkzeug.exceptions import HTTPException
@@ -27,7 +28,7 @@ if has_external_db:
     db_uri = external_db_uri
     if db_uri.startswith("postgres://"):
         db_uri = db_uri.replace("postgres://", "postgresql://", 1)
-    if ("supabase.co" in db_uri) and ("sslmode=" not in db_uri):
+    if (("supabase.co" in db_uri) or ("supabase.com" in db_uri)) and ("sslmode=" not in db_uri):
         db_uri = f"{db_uri}&sslmode=require" if "?" in db_uri else f"{db_uri}?sslmode=require"
     app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 elif is_vercel or '/var/task' in os.path.abspath(__file__):
@@ -117,19 +118,29 @@ def load_user(user_id):
 
 db_init_ok = False
 db_init_failed = False
+db_init_error = None
+db_init_last_attempt_at = 0.0
 
 def ensure_db_initialized():
-    global db_init_ok, db_init_failed
+    global db_init_ok, db_init_failed, db_init_error, db_init_last_attempt_at
     if db_init_ok:
         return
-    if db_init_failed:
+    now = time.time()
+    if db_init_failed and (now - db_init_last_attempt_at) < 10:
         return
     try:
+        db_init_last_attempt_at = now
         with app.app_context():
             db.create_all()
         db_init_ok = True
-    except Exception:
+        db_init_failed = False
+        db_init_error = None
+    except Exception as e:
         db_init_failed = True
+        try:
+            db_init_error = repr(e)
+        except Exception:
+            db_init_error = "unknown"
 
 ensure_db_initialized()
 
@@ -190,20 +201,27 @@ def _redact_db_uri(uri: Optional[str]):
 def healthz():
     uri = app.config.get("SQLALCHEMY_DATABASE_URI")
     db_ping_ok = None
+    db_ping_error = None
     if has_external_db:
         try:
             with db.engine.connect() as conn:
                 conn.exec_driver_sql("select 1")
             db_ping_ok = True
-        except Exception:
+        except Exception as e:
             db_ping_ok = False
+            try:
+                db_ping_error = repr(e)
+            except Exception:
+                db_ping_error = "unknown"
     return jsonify({
         "ok": True,
         "is_vercel": is_vercel,
         "has_external_db": has_external_db,
         "db_init_ok": db_init_ok,
         "db_init_failed": db_init_failed,
+        "db_init_error": db_init_error,
         "db_ping_ok": db_ping_ok,
+        "db_ping_error": db_ping_error,
         "db_uri": _redact_db_uri(uri),
     })
 
